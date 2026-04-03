@@ -1,0 +1,99 @@
+# Composer
+/vendor/
+
+# Build artifacts
+/build/
+/coverage/
+/.phpunit.cache/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+desktop.ini
+
+# Node.js (if we add frontend build tools later)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.npm
+.yarn-integrity
+
+# WordPress
+wp-config.php
+wp-content/uploads/
+wp-content/cache/
+wp-content/backup-db/
+wp-content/advanced-cache.php
+wp-content/wp-cache-config.php
+wp-content/cache/
+wp-content/backups/
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.testing.local
+.env.production.local
+
+# Logs
+*.log
+logs/
+error_log
+access_log
+
+# Temporary files
+*.tmp
+*.temp
+*.cache
+.cache/
+
+# Testing
+/tests/wp-tests-config.php
+/tests/tmp/
+/tests/_output/
+
+# PHPUnit
+phpunit.xml.local
+.phpunit.result.cache
+
+# PHPCS
+/.phpcs.cache
+
+# PHPStan
+/.phpstan.cache
+
+# Deployment
+/.deployer/
+deploy.php
+
+# Backup files
+*.bak
+*.backup
+
+# Archive files
+*.zip
+*.tar
+*.tar.gz
+*.rar
+
+# Documentation build
+/docs/_build/
+
+# Local development
+/wp/
+/wordpress/
+local-config.php

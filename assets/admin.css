@@ -1,0 +1,103 @@
+/**
+ * HonestHosting Site Migrator — Admin Styles
+ *
+ * Built on WordPress native admin CSS. Minimal custom overrides only.
+ */
+
+/* Progress bar */
+.hh-migrator-progress {
+	height: 20px;
+	background-color: #f0f0f1;
+	border-radius: 3px;
+	overflow: hidden;
+	margin: 10px 0;
+}
+
+.hh-migrator-progress-bar {
+	height: 100%;
+	background-color: #2271b1;
+	transition: width 0.3s ease;
+	text-align: center;
+	color: #fff;
+	font-size: 12px;
+	line-height: 20px;
+}
+
+/* Preflight result cards */
+.hh-migrator-preflight-item {
+	padding: 8px 12px;
+	margin: 4px 0;
+	border-left: 4px solid #c3c4c7;
+}
+
+.hh-migrator-preflight-item.error {
+	border-left-color: #d63638;
+	background-color: #fcf0f1;
+}
+
+.hh-migrator-preflight-item.warning {
+	border-left-color: #dba617;
+	background-color: #fcf9e8;
+}
+
+.hh-migrator-preflight-item.info {
+	border-left-color: #72aee6;
+	background-color: #f0f6fc;
+}
+
+/* Status indicator */
+.hh-migrator-status {
+	display: inline-block;
+	padding: 2px 8px;
+	border-radius: 3px;
+	font-size: 12px;
+	font-weight: 600;
+}
+
+.hh-migrator-status.pending {
+	background-color: #f0f0f1;
+	color: #50575e;
+}
+
+.hh-migrator-status.active {
+	background-color: #f0f6fc;
+	color: #2271b1;
+}
+
+.hh-migrator-status.completed {
+	background-color: #edfaef;
+	color: #007017;
+}
+
+.hh-migrator-status.failed {
+	background-color: #fcf0f1;
+	color: #d63638;
+}
+
+/* Section spacing */
+.hh-migrator-section {
+	margin-bottom: 20px;
+	padding: 15px;
+	background: #fff;
+	border: 1px solid #c3c4c7;
+	box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+}
+
+.hh-migrator-section h2 {
+	margin-top: 0;
+	padding-bottom: 10px;
+	border-bottom: 1px solid #f0f0f1;
+}
+
+/* Log viewer */
+.hh-migrator-log-table {
+	font-size: 13px;
+}
+
+.hh-migrator-log-table .column-event {
+	width: 180px;
+}
+
+.hh-migrator-log-table .column-created_at {
+	width: 160px;
+}

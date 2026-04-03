@@ -1,0 +1,21 @@
+services:
+  wordpress:
+    image: harbor.klmh.co/klm/mariadb:10.7.3-b3
+    container_name: hh-site-migrator-db
+    environment:
+      MARIADB_DATABASE: wordpress
+      MARIADB_ROOT_PASSWORD: dead-beef
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-h", "127.0.0.1", "-u", "root", "--password=$$MARIADB_ROOT_PASSWORD"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    ports:
+      - "13307:3306"
+    networks:
+      - wordpress
+
+networks:
+  wordpress:
+    driver: bridge

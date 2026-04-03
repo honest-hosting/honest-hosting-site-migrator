@@ -1,0 +1,18 @@
+parameters:
+    level: 8
+    paths:
+        - src
+        - honest-hosting-site-migrator.php
+    excludePaths:
+        - vendor
+        - tests
+        - build
+        - .phpunit.cache
+    bootstrapFiles:
+        - tests/phpstan-bootstrap.php
+    scanDirectories:
+        - vendor/php-stubs/wordpress-stubs
+    ignoreErrors:
+        -
+            message: '#Parameter .+ of function .+ expects .+, mixed given\.#'
+            reportUnmatched: false
