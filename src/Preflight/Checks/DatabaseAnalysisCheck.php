@@ -88,14 +88,32 @@ class DatabaseAnalysisCheck implements PreflightCheckInterface {
 			);
 		}
 
-		// Warn on non-InnoDB engines.
-		$unsupported_engines = array_diff_key( $engines, array( 'InnoDB' => true ) );
-		foreach ( $unsupported_engines as $engine => $count ) {
+		// Note non-InnoDB engines: MEMORY is fine, others get a warning.
+		$known_engines  = array(
+			'InnoDB' => true,
+			'MEMORY' => true,
+		);
+		$other_engines  = array_diff_key( $engines, $known_engines );
+		$memory_engines = array_intersect_key( $engines, array( 'MEMORY' => true ) );
+
+		foreach ( $memory_engines as $engine => $count ) {
+			$result->add_info(
+				'db_memory_engine',
+				sprintf(
+					/* translators: 1: engine name 2: table count */
+					__( '%2$d tables use %1$s engine.', 'honest-hosting-site-migrator' ),
+					$engine,
+					$count
+				)
+			);
+		}
+
+		foreach ( $other_engines as $engine => $count ) {
 			$result->add_warning(
 				'db_unsupported_engine',
 				sprintf(
 					/* translators: 1: engine name 2: table count */
-					__( '%2$d tables use %1$s engine, which is unsupported. Import may still be attempted but results may vary.', 'honest-hosting-site-migrator' ),
+					__( '%2$d tables use %1$s engine, which may not be fully supported. Import may still be attempted but results may vary.', 'honest-hosting-site-migrator' ),
 					$engine,
 					$count
 				)

@@ -57,13 +57,22 @@ defined( 'ABSPATH' ) || exit;
 				<input
 					type="text"
 					id="hh-migrator-chunk-size"
-					class="small-text"
+					class="regular-text"
 					value="<?php echo esc_attr( $hh_view['chunk_size'] ); ?>"
 					placeholder="2 MB"
 				/>
 				<p class="description">
-					<?php esc_html_e( 'Upload chunk size (2 MB \u2013 200 MB). Example: 2MB, 50Mb, 100mb.', 'honest-hosting-site-migrator' ); ?>
+					<?php esc_html_e( 'Upload chunk size (2 MB – 200 MB). Example: 2MB, 50Mb, 100mb.', 'honest-hosting-site-migrator' ); ?>
 				</p>
+			</td>
+		</tr>
+		<tr id="hh-migrator-dest-url-row" style="display: none;">
+			<th scope="row"><?php esc_html_e( 'Destination Site URL', 'honest-hosting-site-migrator' ); ?></th>
+			<td>
+				<a id="hh-migrator-dest-url-link" href="#" target="_blank" rel="noopener noreferrer"></a>
+				<button type="button" id="hh-migrator-dest-url-copy" class="button-link" title="<?php esc_attr_e( 'Copy URL', 'honest-hosting-site-migrator' ); ?>" style="margin-left: 4px; vertical-align: middle;">
+					<span class="dashicons dashicons-clipboard" style="font-size: 16px; width: 16px; height: 16px;"></span>
+				</button>
 			</td>
 		</tr>
 	</table>
@@ -72,5 +81,9 @@ defined( 'ABSPATH' ) || exit;
 		<button type="button" id="hh-migrator-save-config" class="button button-primary">
 			<?php esc_html_e( 'Save Configuration', 'honest-hosting-site-migrator' ); ?>
 		</button>
+		<button type="button" id="hh-migrator-run-preflight" class="button">
+			<?php esc_html_e( 'Run Preflight Checks', 'honest-hosting-site-migrator' ); ?>
+		</button>
 	</p>
+
 </div>

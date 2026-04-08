@@ -17,7 +17,7 @@ class PreflightResult {
 	/**
 	 * Result items.
 	 *
-	 * @var array<int, array{type: string, code: string, message: string}>
+	 * @var array<int, array{type: string, code: string, message: string, source: string}>
 	 */
 	private array $items = array();
 
@@ -26,13 +26,15 @@ class PreflightResult {
 	 *
 	 * @param string $code    Machine-readable code.
 	 * @param string $message Human-readable message.
+	 * @param string $source  Origin: 'source' or 'destination'.
 	 * @return void
 	 */
-	public function add_error( string $code, string $message ): void {
+	public function add_error( string $code, string $message, string $source = 'source' ): void {
 		$this->items[] = array(
 			'type'    => 'error',
 			'code'    => $code,
 			'message' => $message,
+			'source'  => $source,
 		);
 	}
 
@@ -41,13 +43,15 @@ class PreflightResult {
 	 *
 	 * @param string $code    Machine-readable code.
 	 * @param string $message Human-readable message.
+	 * @param string $source  Origin: 'source' or 'destination'.
 	 * @return void
 	 */
-	public function add_warning( string $code, string $message ): void {
+	public function add_warning( string $code, string $message, string $source = 'source' ): void {
 		$this->items[] = array(
 			'type'    => 'warning',
 			'code'    => $code,
 			'message' => $message,
+			'source'  => $source,
 		);
 	}
 
@@ -56,13 +60,15 @@ class PreflightResult {
 	 *
 	 * @param string $code    Machine-readable code.
 	 * @param string $message Human-readable message.
+	 * @param string $source  Origin: 'source' or 'destination'.
 	 * @return void
 	 */
-	public function add_info( string $code, string $message ): void {
+	public function add_info( string $code, string $message, string $source = 'source' ): void {
 		$this->items[] = array(
 			'type'    => 'info',
 			'code'    => $code,
 			'message' => $message,
+			'source'  => $source,
 		);
 	}
 
@@ -83,7 +89,7 @@ class PreflightResult {
 	/**
 	 * Get only error items.
 	 *
-	 * @return array<int, array{type: string, code: string, message: string}>
+	 * @return array<int, array{type: string, code: string, message: string, source: string}>
 	 */
 	public function get_errors(): array {
 		return array_values(
@@ -97,7 +103,7 @@ class PreflightResult {
 	/**
 	 * Get only warning items.
 	 *
-	 * @return array<int, array{type: string, code: string, message: string}>
+	 * @return array<int, array{type: string, code: string, message: string, source: string}>
 	 */
 	public function get_warnings(): array {
 		return array_values(
@@ -111,7 +117,7 @@ class PreflightResult {
 	/**
 	 * Get only info items.
 	 *
-	 * @return array<int, array{type: string, code: string, message: string}>
+	 * @return array<int, array{type: string, code: string, message: string, source: string}>
 	 */
 	public function get_info_items(): array {
 		return array_values(
@@ -125,7 +131,7 @@ class PreflightResult {
 	/**
 	 * Get all items as an array.
 	 *
-	 * @return array<int, array{type: string, code: string, message: string}>
+	 * @return array<int, array{type: string, code: string, message: string, source: string}>
 	 */
 	public function to_array(): array {
 		return $this->items;

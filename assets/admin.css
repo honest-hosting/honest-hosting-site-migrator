@@ -101,3 +101,46 @@
 .hh-migrator-log-table .column-created_at {
 	width: 160px;
 }
+
+.hh-migrator-log-table .column-level {
+	width: 60px;
+}
+
+/* Toast notifications */
+#hh-migrator-notices {
+	position: fixed;
+	top: 32px; /* below WP admin bar */
+	right: 20px;
+	z-index: 99999;
+	max-width: 400px;
+	width: 100%;
+}
+
+#hh-migrator-notices .notice {
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+	animation: hh-migrator-slide-in 0.3s ease-out;
+}
+
+#hh-migrator-notices .notice.hh-migrator-fade-out {
+	animation: hh-migrator-fade-out 0.3s ease-in forwards;
+}
+
+@keyframes hh-migrator-slide-in {
+	from {
+		transform: translateX(100%);
+		opacity: 0;
+	}
+	to {
+		transform: translateX(0);
+		opacity: 1;
+	}
+}
+
+@keyframes hh-migrator-fade-out {
+	from {
+		opacity: 1;
+	}
+	to {
+		opacity: 0;
+	}
+}

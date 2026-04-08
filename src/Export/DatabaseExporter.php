@@ -10,6 +10,7 @@ namespace HonestHosting\SiteMigrator\Export;
 defined( 'ABSPATH' ) || exit;
 
 use HonestHosting\SiteMigrator\Api\S3Uploader;
+use HonestHosting\SiteMigrator\Log\MigrationLogger;
 use HonestHosting\SiteMigrator\Migration\SessionManager;
 use WP_Error;
 
@@ -49,16 +50,25 @@ class DatabaseExporter {
 	private SessionManager $session_manager;
 
 	/**
+	 * Logger.
+	 *
+	 * @var MigrationLogger
+	 */
+	private MigrationLogger $logger;
+
+	/**
 	 * Constructor.
 	 *
-	 * @param S3Uploader     $uploader        S3 uploader.
-	 * @param ChunkEncoder   $encoder         Chunk encoder.
-	 * @param SessionManager $session_manager Session manager.
+	 * @param S3Uploader      $uploader        S3 uploader.
+	 * @param ChunkEncoder    $encoder         Chunk encoder.
+	 * @param SessionManager  $session_manager Session manager.
+	 * @param MigrationLogger $logger          Logger.
 	 */
-	public function __construct( S3Uploader $uploader, ChunkEncoder $encoder, SessionManager $session_manager ) {
+	public function __construct( S3Uploader $uploader, ChunkEncoder $encoder, SessionManager $session_manager, MigrationLogger $logger ) {
 		$this->uploader        = $uploader;
 		$this->encoder         = $encoder;
 		$this->session_manager = $session_manager;
+		$this->logger          = $logger;
 	}
 
 	/**
@@ -161,6 +171,15 @@ class DatabaseExporter {
 		);
 
 		$chunk_index = $this->get_next_chunk_index( $import_id );
+		$buffer      = '';
+
+		$this->logger->log(
+			$import_id,
+			'db_export.started',
+			sprintf( 'Starting database export: %d tables.', count( $tables ) )
+		);
+
+		$store = $this->session_manager->storage( $import_id );
 
 		foreach ( $tables as $table ) {
 			$name = $table['name'];
@@ -169,15 +188,7 @@ class DatabaseExporter {
 				continue;
 			}
 
-			$this->session_manager->update(
-				$import_id,
-				array(
-					'db_progress' => array_merge(
-						$this->session_manager->load( $import_id )['db_progress'] ?? array(),
-						array( 'current_table' => $name )
-					),
-				) 
-			);
+			$store->set( 'current_table', $name );
 
 			// Try transactional consistency for InnoDB.
 			$is_innodb = 'InnoDB' === $table['engine'];
@@ -188,7 +199,9 @@ class DatabaseExporter {
 				$wpdb->query( 'START TRANSACTION' );
 			}
 
-			$result = $this->export_table( $import_id, $name, $chunk_size, $chunk_index );
+			$this->logger->log( $import_id, 'db_export.table', sprintf( 'Exporting table: %s (%d rows)', $name, $table['rows'] ) );
+
+			$result = $this->export_table( $import_id, $name, $chunk_size, $chunk_index, $buffer );
 
 			if ( $is_innodb ) {
 				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
@@ -198,37 +211,30 @@ class DatabaseExporter {
 			if ( is_wp_error( $result ) ) {
 				$this->session_manager->update(
 					$import_id,
-					array(
-						'last_error' => $result->get_error_message(),
-					) 
+					array( 'last_error' => $result->get_error_message() )
 				);
 				return $result;
 			}
 
 			$chunk_index = $result;
 
-			// Mark table complete.
-			$state                       = $this->session_manager->load( $import_id );
-			$dp                          = $state['db_progress'] ?? array();
-			$dp['completed_tables']      = ( $dp['completed_tables'] ?? 0 ) + 1;
-			$dp['completed_table_names'] = array_merge( $dp['completed_table_names'] ?? array(), array( $name ) );
-			$dp['current_table']         = null;
+			// Mark table complete via storage.
+			$current_checksums = $this->get_checksums( array( array( 'name' => $name ) ) );
+			$store->mark_table_completed( $name, $current_checksums[ $name ] ?? '' );
+			$store->set( 'current_table', null );
 
-			// Store checksum for future incremental diffs.
-			$checksums          = $state['db_table_checksums'] ?? array();
-			$current_checksums  = $this->get_checksums( array( array( 'name' => $name ) ) );
-			$checksums[ $name ] = $current_checksums[ $name ] ?? '';
-
-			$this->session_manager->update(
-				$import_id,
-				array(
-					'db_progress'        => $dp,
-					'db_table_checksums' => $checksums,
-				) 
-			);
-
-			$this->session_manager->refresh_lock( $import_id );
+			$store->refresh_lock();
 		}
+
+		// Flush any remaining buffer across all tables.
+		if ( '' !== $buffer ) {
+			$result = $this->flush_chunk( $import_id, $chunk_index, $buffer, '_combined' );
+			if ( is_wp_error( $result ) ) {
+				return $result;
+			}
+		}
+
+		$this->logger->log( $import_id, 'db_export.completed', sprintf( 'Database export completed: %d tables.', count( $tables ) ) );
 
 		return true;
 	}
@@ -240,12 +246,11 @@ class DatabaseExporter {
 	 * @param string $table_name  Table name.
 	 * @param int    $chunk_size  Chunk size in bytes.
 	 * @param int    $chunk_index Starting chunk index.
+	 * @param string &$buffer     Shared buffer carried across tables.
 	 * @return int|WP_Error Next chunk index on success.
 	 */
-	private function export_table( string $import_id, string $table_name, int $chunk_size, int $chunk_index ) {
+	private function export_table( string $import_id, string $table_name, int $chunk_size, int $chunk_index, string &$buffer ) {
 		global $wpdb;
-
-		$buffer = '';
 
 		// CREATE TABLE statement.
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
@@ -301,21 +306,14 @@ class DatabaseExporter {
 					}
 					$buffer = '';
 					++$chunk_index;
+					set_time_limit( max( 60, (int) ini_get( 'max_execution_time' ) ) );
 				}
 			}
 
 			$offset += self::BATCH_SIZE;
 		}
 
-		// Flush remaining buffer.
-		if ( '' !== $buffer ) {
-			$result = $this->flush_chunk( $import_id, $chunk_index, $buffer, $table_name );
-			if ( is_wp_error( $result ) ) {
-				return $result;
-			}
-			++$chunk_index;
-		}
-
+		// Buffer carries over to the next table — no per-table flush.
 		return $chunk_index;
 	}
 
@@ -329,7 +327,14 @@ class DatabaseExporter {
 	 * @return true|WP_Error
 	 */
 	private function flush_chunk( string $import_id, int $chunk_index, string $data, string $table_name ) {
-		$encoded = $this->encoder->encode( $data, $import_id, $chunk_index, $table_name, 'database' );
+		$raw_size = strlen( $data );
+		$encoded  = $this->encoder->encode( $data, $import_id, $chunk_index, $table_name, 'database' );
+
+		$this->logger->log(
+			$import_id,
+			'db_export.chunk_upload',
+			sprintf( 'Uploading db chunk-%d for %s (%s raw, %s encoded).', $chunk_index, $table_name, $this->format_bytes( $raw_size ), $this->format_bytes( strlen( $encoded['data'] ) ) )
+		);
 
 		$result = $this->uploader->upload_chunk(
 			$import_id,
@@ -340,26 +345,43 @@ class DatabaseExporter {
 		);
 
 		if ( is_wp_error( $result ) ) {
+			$this->logger->log( $import_id, 'db_export.chunk_error', sprintf( 'Failed to upload db chunk-%d: %s', $chunk_index, $result->get_error_message() ), array(), 'ERROR' );
 			return $result;
 		}
 
+		set_time_limit( max( 60, (int) ini_get( 'max_execution_time' ) ) );
+
 		// Record chunk reference.
-		$state  = $this->session_manager->load( $import_id );
-		$refs   = $state['chunk_references'] ?? array();
-		$refs[] = array_merge( $encoded['metadata'], $result );
-		$this->session_manager->update( $import_id, array( 'chunk_references' => $refs ) );
+		$this->session_manager->storage( $import_id )->add_chunk_ref(
+			array_merge( $encoded['metadata'], $result )
+		);
 
 		return true;
 	}
 
 	/**
-	 * Get the next chunk index based on existing references.
+	 * Get the next chunk index from storage.
 	 *
 	 * @param string $import_id Import session ULID.
 	 * @return int
 	 */
 	private function get_next_chunk_index( string $import_id ): int {
-		$state = $this->session_manager->load( $import_id );
-		return count( $state['chunk_references'] ?? array() );
+		return $this->session_manager->storage( $import_id )->get_chunk_count();
+	}
+
+	/**
+	 * Format bytes into a human-readable string.
+	 *
+	 * @param int $bytes Size in bytes.
+	 * @return string
+	 */
+	private function format_bytes( int $bytes ): string {
+		if ( $bytes < 1024 ) {
+			return $bytes . 'B';
+		}
+		if ( $bytes < 1048576 ) {
+			return round( $bytes / 1024, 1 ) . 'KB';
+		}
+		return round( $bytes / 1048576, 1 ) . 'MB';
 	}
 }

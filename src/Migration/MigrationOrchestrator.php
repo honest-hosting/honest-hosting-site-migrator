@@ -16,7 +16,6 @@ use HonestHosting\SiteMigrator\Export\DatabaseExporter;
 use HonestHosting\SiteMigrator\Export\FileExporter;
 use HonestHosting\SiteMigrator\Log\MigrationLogger;
 use HonestHosting\SiteMigrator\Preflight\PreflightRunner;
-use HonestHosting\SiteMigrator\Util\ChunkSizeValidator;
 use WP_Error;
 
 /**
@@ -73,11 +72,59 @@ class MigrationOrchestrator {
 	/**
 	 * Start a new migration.
 	 *
-	 * @param string $site_id Destination site ULID.
+	 * @param string $site_id Destination site UUID (from stored option).
 	 * @param string $mode    Migration mode: full, incremental_all, incremental_files, incremental_db.
 	 * @return array<string, mixed>|WP_Error Session state on success.
 	 */
 	public function start( string $site_id, string $mode ) {
+		$state = $this->prepare( $site_id, $mode );
+		if ( is_wp_error( $state ) ) {
+			return $state;
+		}
+
+		return $this->run( $state['import_id'] ?? '', $mode );
+	}
+
+	/**
+	 * Run the migration pipeline for a previously prepared session.
+	 *
+	 * @param string $import_id Import session UUID.
+	 * @param string $mode      Migration mode.
+	 * @return array<string, mixed>|WP_Error Session state on success.
+	 */
+	public function run( string $import_id, string $mode ) {
+		$result = $this->execute( $import_id, $mode );
+
+		if ( is_wp_error( $result ) ) {
+			$this->session_manager->update(
+				$import_id,
+				array(
+					'status'     => 'failed',
+					'last_error' => $result->get_error_message(),
+				)
+			);
+			$this->session_manager->release_lock( $import_id );
+			$this->logger->log( $import_id, 'failure', $result->get_error_message(), array(), 'ERROR' );
+			return $result;
+		}
+
+		$this->session_manager->update( $import_id, array( 'status' => 'completed' ) );
+		$this->session_manager->release_lock( $import_id );
+
+		return $this->session_manager->load( $import_id ) ?? array( 'import_id' => $import_id );
+	}
+
+	/**
+	 * Prepare a migration: validate, create API session, create local session.
+	 *
+	 * This runs synchronously and can be called separately from execute()
+	 * so that errors (e.g., 409 conflict) are returned to the caller immediately.
+	 *
+	 * @param string $site_id Destination site UUID.
+	 * @param string $mode    Migration mode.
+	 * @return array<string, mixed>|WP_Error Session state on success.
+	 */
+	public function prepare( string $site_id, string $mode ) {
 		$valid_modes = array( 'full', 'incremental_all', 'incremental_files', 'incremental_db' );
 		if ( ! in_array( $mode, $valid_modes, true ) ) {
 			return new WP_Error( 'hh_migrator_invalid_mode', __( 'Invalid migration mode.', 'honest-hosting-site-migrator' ) );
@@ -93,29 +140,36 @@ class MigrationOrchestrator {
 			);
 		}
 
-		// Create import session on backend.
-		$source_metadata = array(
-			'source_url'  => get_site_url(),
-			'wp_version'  => get_bloginfo( 'version' ),
-			'php_version' => PHP_VERSION,
-			'multisite'   => is_multisite(),
-			'mode'        => $mode,
+		// Gather source estimates for SiteImportRequest.
+		$estimator = new SourceEstimator();
+		$estimates = $estimator->gather();
+
+		// Build SiteImportRequest body.
+		$request_body = array(
+			'file_bytes'        => $estimates['file_bytes'],
+			'file_count'        => $estimates['file_count'],
+			'db_bytes'          => $estimates['db_bytes'],
+			'wordpress_version' => get_bloginfo( 'version' ),
+			'php_version'       => PHP_VERSION,
+			'mode'              => $this->map_mode_to_api( $mode ),
+			'multisite'         => is_multisite(),
 		);
 
-		$response = $this->client->create_import( $site_id, $source_metadata );
+		// Create import session on backend.
+		$response = $this->client->create_import( $request_body );
 		if ( is_wp_error( $response ) ) {
 			return $response;
 		}
 
-		$import_id = $response['import_id'] ?? '';
+		$import_id = $response['uuid'] ?? '';
 		if ( empty( $import_id ) ) {
-			return new WP_Error( 'hh_migrator_no_import_id', __( 'Backend did not return an import ID.', 'honest-hosting-site-migrator' ) );
+			return new WP_Error( 'hh_migrator_no_import_id', __( 'Backend did not return an import UUID.', 'honest-hosting-site-migrator' ) );
 		}
 
-		$chunk_size = ChunkSizeValidator::get_configured_size();
-
 		// Create local session.
-		$state = $this->session_manager->create( $import_id, $site_id, $mode, $chunk_size );
+		$state  = $this->session_manager->create( $import_id, $site_id, $mode );
+		$engine = $this->session_manager->storage( $import_id )->get_engine_name();
+		$this->logger->log( $import_id, 'session.created', sprintf( 'Session created (storage engine: %s).', $engine ) );
 
 		// Acquire lock.
 		if ( ! $this->session_manager->acquire_lock( $import_id ) ) {
@@ -124,26 +178,7 @@ class MigrationOrchestrator {
 
 		$this->logger->log( $import_id, 'full' === $mode ? 'export.full.started' : 'export.incremental.started', 'Migration started.', array( 'mode' => $mode ) );
 
-		// Run the migration.
-		$result = $this->execute( $import_id, $mode );
-
-		if ( is_wp_error( $result ) ) {
-			$this->session_manager->update(
-				$import_id,
-				array(
-					'status'     => 'failed',
-					'last_error' => $result->get_error_message(),
-				) 
-			);
-			$this->session_manager->release_lock( $import_id );
-			$this->logger->log( $import_id, 'failure', $result->get_error_message() );
-			return $result;
-		}
-
-		$this->session_manager->update( $import_id, array( 'status' => 'completed' ) );
-		$this->session_manager->release_lock( $import_id );
-
-		return $this->session_manager->load( $import_id ) ?? $state;
+		return $state;
 	}
 
 	/**
@@ -181,10 +216,10 @@ class MigrationOrchestrator {
 				array(
 					'status'     => 'failed',
 					'last_error' => $result->get_error_message(),
-				) 
+				)
 			);
 			$this->session_manager->release_lock( $import_id );
-			$this->logger->log( $import_id, 'failure', $result->get_error_message() );
+			$this->logger->log( $import_id, 'failure', $result->get_error_message(), array(), 'ERROR' );
 			return $result;
 		}
 
@@ -205,6 +240,10 @@ class MigrationOrchestrator {
 			return new WP_Error( 'hh_migrator_no_destination', __( 'No destination site selected.', 'honest-hosting-site-migrator' ) );
 		}
 
+		// Cancel on the backend API (best-effort — still clean up locally on failure).
+		$this->client->cancel_import();
+
+		// Clean up local sessions.
 		$sessions = $this->session_manager->list_all();
 		foreach ( $sessions as $session ) {
 			if ( ( $session['destination_site_id'] ?? '' ) === $site_id ) {
@@ -220,7 +259,7 @@ class MigrationOrchestrator {
 	/**
 	 * Execute the migration pipeline.
 	 *
-	 * @param string $import_id Import session ULID.
+	 * @param string $import_id Import session UUID.
 	 * @param string $mode      Migration mode.
 	 * @return true|WP_Error
 	 */
@@ -231,7 +270,7 @@ class MigrationOrchestrator {
 		}
 
 		$remaining  = $this->resume_handler->get_remaining_work( $state );
-		$chunk_size = $state['chunk_size_bytes'] ?? ChunkSizeValidator::DEFAULT_BYTES;
+		$chunk_size = $state['chunk_size_bytes'] ?? ( 2 * 1024 * 1024 );
 		$encoder    = new ChunkEncoder();
 		$uploader   = new S3Uploader( $this->client );
 
@@ -239,12 +278,6 @@ class MigrationOrchestrator {
 		$preflight_result = $this->execute_preflight( $import_id, $state );
 		if ( is_wp_error( $preflight_result ) ) {
 			return $preflight_result;
-		}
-
-		// Check destination readiness.
-		$ready = $this->client->check_ready( $import_id );
-		if ( is_wp_error( $ready ) ) {
-			return $ready;
 		}
 
 		// File export.
@@ -263,14 +296,14 @@ class MigrationOrchestrator {
 			}
 		}
 
-		// Build and upload manifest.
+		// Build and upload manifest, then finalize.
 		return $this->execute_finalize( $import_id, $encoder, $uploader );
 	}
 
 	/**
 	 * Run preflight checks if not already done.
 	 *
-	 * @param string               $import_id Import session ULID.
+	 * @param string               $import_id Import session UUID.
 	 * @param array<string, mixed> $state     Session state.
 	 * @return true|WP_Error
 	 */
@@ -288,7 +321,7 @@ class MigrationOrchestrator {
 		$this->logger->log( $import_id, 'preflight.completed', 'Preflight checks completed.' );
 
 		if ( $result->has_blocking_errors() ) {
-			$this->logger->log( $import_id, 'preflight.warnings', 'Preflight found blocking errors.', array( 'errors' => $result->get_errors() ) );
+			$this->logger->log( $import_id, 'preflight.warnings', 'Preflight found blocking errors.', array( 'errors' => $result->get_errors() ), 'ERROR' );
 			return new WP_Error( 'hh_migrator_preflight_failed', __( 'Preflight checks found blocking errors.', 'honest-hosting-site-migrator' ) );
 		}
 
@@ -298,7 +331,7 @@ class MigrationOrchestrator {
 	/**
 	 * Execute the file export phase.
 	 *
-	 * @param string               $import_id Import session ULID.
+	 * @param string               $import_id Import session UUID.
 	 * @param string               $mode      Migration mode.
 	 * @param array<string, mixed> $state     Session state.
 	 * @param S3Uploader           $uploader  S3 uploader.
@@ -310,7 +343,7 @@ class MigrationOrchestrator {
 	private function execute_file_export( string $import_id, string $mode, array $state, S3Uploader $uploader, ChunkEncoder $encoder, array $remaining, int $chunk_size ) {
 		$this->logger->log( $import_id, 'file_scan.started', 'File scan starting.' );
 
-		$file_exporter = new FileExporter( $uploader, $encoder, $this->session_manager );
+		$file_exporter = new FileExporter( $uploader, $encoder, $this->session_manager, $this->logger );
 		$manifest      = $file_exporter->scan();
 
 		$this->logger->log( $import_id, 'file_scan.completed', sprintf( 'File scan completed: %d files found.', count( $manifest ) ) );
@@ -332,7 +365,7 @@ class MigrationOrchestrator {
 	/**
 	 * Execute the database export phase.
 	 *
-	 * @param string               $import_id Import session ULID.
+	 * @param string               $import_id Import session UUID.
 	 * @param string               $mode      Migration mode.
 	 * @param array<string, mixed> $state     Session state.
 	 * @param S3Uploader           $uploader  S3 uploader.
@@ -344,7 +377,7 @@ class MigrationOrchestrator {
 	private function execute_db_export( string $import_id, string $mode, array $state, S3Uploader $uploader, ChunkEncoder $encoder, array $remaining, int $chunk_size ) {
 		$this->logger->log( $import_id, 'db_export.started', 'Database export starting.' );
 
-		$db_exporter = new DatabaseExporter( $uploader, $encoder, $this->session_manager );
+		$db_exporter = new DatabaseExporter( $uploader, $encoder, $this->session_manager, $this->logger );
 		$skip_tables = $remaining['completed_tables'];
 
 		if ( str_starts_with( $mode, 'incremental' ) ) {
@@ -370,9 +403,9 @@ class MigrationOrchestrator {
 	}
 
 	/**
-	 * Build manifest and upload as final chunk.
+	 * Build manifest, upload as final chunk, and finalize the import.
 	 *
-	 * @param string       $import_id Import session ULID.
+	 * @param string       $import_id Import session UUID.
 	 * @param ChunkEncoder $encoder   Chunk encoder.
 	 * @param S3Uploader   $uploader  S3 uploader.
 	 * @return true|WP_Error
@@ -406,7 +439,30 @@ class MigrationOrchestrator {
 			return $upload_result;
 		}
 
-		$this->logger->log( $import_id, 'import_ready.sent', 'Import ready signal sent.' );
+		// Signal backend that the import is ready to be processed.
+		$finalize_result = $this->client->finalize_import();
+		if ( is_wp_error( $finalize_result ) ) {
+			$this->logger->log( $import_id, 'failure', 'Finalize failed: ' . $finalize_result->get_error_message(), array(), 'ERROR' );
+			return $finalize_result;
+		}
+
+		$this->logger->log( $import_id, 'import_ready.sent', 'Import finalized successfully.' );
 		return true;
+	}
+
+	/**
+	 * Map plugin migration mode to backend API mode.
+	 *
+	 * @param string $plugin_mode Plugin-local mode string.
+	 * @return string API mode: auto, full, or incremental.
+	 */
+	private function map_mode_to_api( string $plugin_mode ): string {
+		return match ( $plugin_mode ) {
+			'full'               => 'full',
+			'incremental_all',
+			'incremental_files',
+			'incremental_db'     => 'incremental',
+			default              => 'auto',
+		};
 	}
 }

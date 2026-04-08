@@ -67,6 +67,10 @@ class Plugin {
 	public function init(): void {
 		$this->ensure_state_directory();
 
+		// Register cron/background hooks (must run outside is_admin for WP-Cron).
+		new Schedule\CronScheduler();
+		new Migration\BackgroundRunner();
+
 		if ( is_admin() ) {
 			$this->admin_page   = new Admin\AdminPage();
 			$this->ajax_handler = new Admin\AjaxHandler();
@@ -124,6 +128,11 @@ class Plugin {
 		$this->ensure_state_directory();
 		$this->create_log_table();
 
+		// Create MySQL fallback tables if SQLite3 is not available.
+		if ( ! \HonestHosting\SiteMigrator\Storage\StorageFactory::is_sqlite_available() ) {
+			$this->create_mysql_storage_tables();
+		}
+
 		flush_rewrite_rules();
 		wp_cache_flush();
 	}
@@ -178,10 +187,11 @@ class Plugin {
 		$sql = "CREATE TABLE {$table_name} (
 			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 			import_id VARCHAR(26) DEFAULT '' NOT NULL,
+			level VARCHAR(10) DEFAULT 'INFO' NOT NULL,
 			event VARCHAR(100) DEFAULT '' NOT NULL,
 			message TEXT NOT NULL,
 			context LONGTEXT DEFAULT '' NOT NULL,
-			created_at DATETIME DEFAULT CURRENT_TIMESTAMP NOT NULL,
+			created_at DATETIME(3) DEFAULT CURRENT_TIMESTAMP(3) NOT NULL,
 			PRIMARY KEY  (id),
 			KEY import_id (import_id),
 			KEY event (event),
@@ -192,6 +202,21 @@ class Plugin {
 		dbDelta( $sql );
 
 		update_option( 'hh_migrator_db_version', HH_MIGRATOR_VERSION );
+	}
+
+	/**
+	 * Create MySQL fallback tables for session storage.
+	 *
+	 * Only called when SQLite3 is not available.
+	 *
+	 * @return void
+	 */
+	private function create_mysql_storage_tables(): void {
+		// Tables are created on-demand by MysqlStorage::init(),
+		// but we trigger a dummy init here to ensure they exist.
+		$dummy = new Storage\MysqlStorage( '__setup__' );
+		$dummy->init( '__setup__' );
+		$dummy->destroy();
 	}
 
 	/**

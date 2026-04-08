@@ -9,6 +9,9 @@ namespace HonestHosting\SiteMigrator\Log;
 
 defined( 'ABSPATH' ) || exit;
 
+use DateTime;
+use DateTimeZone;
+
 /**
  * Logs migration events to a custom database table.
  */
@@ -31,9 +34,10 @@ class MigrationLogger {
 	 * @param string               $event     Event identifier (e.g. 'preflight.started').
 	 * @param string               $message   Human-readable message.
 	 * @param array<string, mixed> $context   Additional context data.
+	 * @param string               $level     Log level: INFO, WARN, or ERROR.
 	 * @return void
 	 */
-	public function log( string $import_id, string $event, string $message, array $context = array() ): void {
+	public function log( string $import_id, string $event, string $message, array $context = array(), string $level = 'INFO' ): void {
 		global $wpdb;
 
 		$table = $this->get_table_name();
@@ -43,12 +47,13 @@ class MigrationLogger {
 			$table,
 			array(
 				'import_id'  => $import_id,
+				'level'      => $level,
 				'event'      => $event,
 				'message'    => $message,
 				'context'    => wp_json_encode( $context ),
-				'created_at' => current_time( 'mysql', true ),
+				'created_at' => ( new DateTime( 'now', new DateTimeZone( 'UTC' ) ) )->format( 'Y-m-d H:i:s.v' ),
 			),
-			array( '%s', '%s', '%s', '%s', '%s' )
+			array( '%s', '%s', '%s', '%s', '%s', '%s' )
 		);
 	}
 
@@ -57,7 +62,7 @@ class MigrationLogger {
 	 *
 	 * @param int         $limit     Maximum entries to return.
 	 * @param string|null $import_id Filter by import ID.
-	 * @return list<object{id: string, import_id: string, event: string, message: string, context: string, created_at: string}>
+	 * @return list<object{id: string, import_id: string, level: string, event: string, message: string, context: string, created_at: string}>
 	 */
 	public function get_recent( int $limit = 100, ?string $import_id = null ): array {
 		global $wpdb;
@@ -87,9 +92,23 @@ class MigrationLogger {
 	}
 
 	/**
+	 * Clear all log entries.
+	 *
+	 * @return void
+	 */
+	public function clear(): void {
+		global $wpdb;
+
+		$table = $this->get_table_name();
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$wpdb->query( "TRUNCATE TABLE {$table}" );
+	}
+
+	/**
 	 * Get all log entries (for debug download).
 	 *
-	 * @return list<object{id: string, import_id: string, event: string, message: string, context: string, created_at: string}>
+	 * @return list<object{id: string, import_id: string, level: string, event: string, message: string, context: string, created_at: string}>
 	 */
 	public function get_all(): array {
 		global $wpdb;

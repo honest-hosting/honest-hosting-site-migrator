@@ -48,8 +48,8 @@ class AdminPage {
 	 */
 	public function add_admin_menu(): void {
 		$this->hook_suffix = (string) add_management_page(
-			__( 'HH Site Migrator', 'honest-hosting-site-migrator' ),
-			__( 'HH Site Migrator', 'honest-hosting-site-migrator' ),
+			__( 'HonestHosting Migrator', 'honest-hosting-site-migrator' ),
+			__( 'HonestHosting Migrator', 'honest-hosting-site-migrator' ),
 			'manage_options',
 			self::MENU_SLUG,
 			array( $this, 'render_page' )

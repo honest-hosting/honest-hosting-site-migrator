@@ -14,7 +14,7 @@ use WP_Error;
 /**
  * Wraps all HTTP communication with the HonestHosting backend.
  *
- * Every request includes the X-HH-Site-Import-Key header.
+ * Every request includes the X-API-Site-Import-Token header.
  */
 class HonestHostingClient {
 
@@ -42,56 +42,45 @@ class HonestHostingClient {
 	}
 
 	/**
-	 * Filter for eligible destination sites.
+	 * Get the destination site metadata (import key scoped, returns single site).
 	 *
-	 * @return array<string, mixed>|WP_Error
+	 * @return array<string, mixed>|WP_Error SiteImportSiteResponse.
 	 */
-	public function filter_sites() {
-		return $this->get( ApiEndpoints::url( ApiEndpoints::FILTER_SITES ) );
+	public function get_site() {
+		return $this->get( ApiEndpoints::url( ApiEndpoints::GET_SITE ) );
 	}
 
 	/**
-	 * Create a new import session for a destination site.
+	 * Create a new import session.
 	 *
-	 * @param string               $site_id  Destination site ULID.
-	 * @param array<string, mixed> $metadata Source site metadata.
-	 * @return array<string, mixed>|WP_Error Response including import_id.
+	 * @param array<string, mixed> $request_body SiteImportRequest body.
+	 * @return array<string, mixed>|WP_Error SiteImportResponse including uuid.
 	 */
-	public function create_import( string $site_id, array $metadata = array() ) {
+	public function create_import( array $request_body ) {
 		return $this->post(
-			ApiEndpoints::url( ApiEndpoints::CREATE_IMPORT, $site_id ),
-			$metadata
+			ApiEndpoints::url( ApiEndpoints::CREATE_IMPORT ),
+			$request_body
 		);
 	}
 
 	/**
 	 * Validate a pending import (capacity, destination readiness).
 	 *
-	 * @param string               $site_id   Destination site ULID.
-	 * @param array<string, mixed> $estimates Source size estimates.
+	 * @param array<string, mixed> $request_body SiteImportRequest body.
 	 * @return array<string, mixed>|WP_Error
 	 */
-	public function validate_import( string $site_id, array $estimates ) {
+	public function validate_import( array $request_body ) {
 		return $this->post(
-			ApiEndpoints::url( ApiEndpoints::VALIDATE_IMPORT, $site_id ),
-			$estimates
+			ApiEndpoints::url( ApiEndpoints::VALIDATE_IMPORT ),
+			$request_body
 		);
-	}
-
-	/**
-	 * List available import sessions.
-	 *
-	 * @return array<string, mixed>|WP_Error
-	 */
-	public function filter_imports() {
-		return $this->get( ApiEndpoints::url( ApiEndpoints::FILTER_IMPORTS ) );
 	}
 
 	/**
 	 * Get import session info.
 	 *
-	 * @param string $import_id Import session ULID.
-	 * @return array<string, mixed>|WP_Error
+	 * @param string $import_id Import session UUID.
+	 * @return array<string, mixed>|WP_Error SiteImportResponse.
 	 */
 	public function get_import( string $import_id ) {
 		return $this->get( ApiEndpoints::url( ApiEndpoints::GET_IMPORT, $import_id ) );
@@ -100,9 +89,9 @@ class HonestHostingClient {
 	/**
 	 * Obtain a presigned S3 URL for chunk upload.
 	 *
-	 * @param string               $import_id  Import session ULID.
-	 * @param array<string, mixed> $chunk_meta Chunk metadata (index, content_type, content_length, etc.).
-	 * @return array<string, mixed>|WP_Error
+	 * @param string               $import_id  Import session UUID.
+	 * @param array<string, mixed> $chunk_meta SiteImportUploadUrlRequest body.
+	 * @return array<string, mixed>|WP_Error SiteImportUploadUrlResponse.
 	 */
 	public function get_upload_url( string $import_id, array $chunk_meta ) {
 		return $this->post(
@@ -112,13 +101,21 @@ class HonestHostingClient {
 	}
 
 	/**
-	 * Check if destination is ready for import.
+	 * Finalize a site import (signal backend that upload is complete).
 	 *
-	 * @param string $import_id Import session ULID.
-	 * @return array<string, mixed>|WP_Error
+	 * @return array<string, mixed>|WP_Error SiteImportResponse.
 	 */
-	public function check_ready( string $import_id ) {
-		return $this->get( ApiEndpoints::url( ApiEndpoints::CHECK_READY, $import_id ) );
+	public function finalize_import() {
+		return $this->post( ApiEndpoints::url( ApiEndpoints::FINALIZE_IMPORT ) );
+	}
+
+	/**
+	 * Cancel the active import for the authenticated site.
+	 *
+	 * @return array<string, mixed>|WP_Error SiteImportResponse.
+	 */
+	public function cancel_import() {
+		return $this->delete( ApiEndpoints::url( ApiEndpoints::GET_SITE ) );
 	}
 
 	/**
@@ -162,15 +159,34 @@ class HonestHostingClient {
 	}
 
 	/**
+	 * Perform a DELETE request.
+	 *
+	 * @param string $url Full URL.
+	 * @return array<string, mixed>|WP_Error
+	 */
+	private function delete( string $url ) {
+		$response = wp_remote_request(
+			$url,
+			array(
+				'method'  => 'DELETE',
+				'headers' => $this->build_headers(),
+				'timeout' => self::TIMEOUT,
+			)
+		);
+
+		return $this->parse_response( $response );
+	}
+
+	/**
 	 * Build request headers.
 	 *
 	 * @return array<string, string>
 	 */
 	private function build_headers(): array {
 		return array(
-			'Content-Type'         => 'application/json',
-			'Accept'               => 'application/json',
-			'X-HH-Site-Import-Key' => $this->import_key,
+			'Content-Type'            => 'application/json',
+			'Accept'                  => 'application/json',
+			'X-API-Site-Import-Token' => $this->import_key,
 		);
 	}
 

@@ -45,13 +45,31 @@ build: build-setup composer-install lint ## Build distributable zip artifact
 	@if [[ -n "${VERSION}" ]] && [[ ${VERSION} =~ [0-9]+\.[0-9]+\.[0-9]+ ]]; then                                                                                \
 		sed -i "s|Version: 1.0.0|Version: $(VERSION)|; s|'HH_MIGRATOR_VERSION', '1.0.0'|'HH_MIGRATOR_VERSION', '$(VERSION)'|;" honest-hosting-site-migrator.php; \
 	fi
-	@zip -r build/$(PLUGIN_NAME)-$(VERSION).zip . -x "**/.git*" "**/node_modules/*" "**/tests/*" "**/*.env*" "**/*.phpunit*" "**/phpunit.xml" "**/TESTING.md"
+	@rsync -av \
+		--exclude 'build/'              \
+		--exclude 'docs/'               \
+		--exclude '.git/'               \
+		--exclude '.gitignore'          \
+		--exclude '.gitmodules'         \
+		--exclude 'node_modules/'       \
+		--exclude 'tests/'              \
+		--exclude '*.env*'              \
+		--exclude '*.phpunit*'          \
+		--exclude 'phpunit.xml'         \
+		--exclude 'TESTING.md'          \
+		--exclude 'docker-compose.yml'  \
+		--exclude 'Makefile'            \
+		./ build/$(PLUGIN_NAME)/
+	@pushd build >/dev/null && zip -r $(PLUGIN_NAME)-$(VERSION).zip $(PLUGIN_NAME) >/dev/null
 	@pushd build >/dev/null && sha256sum $(PLUGIN_NAME)-$(VERSION).zip > $(PLUGIN_NAME)-$(VERSION).zip.sha256
 .PHONY: build
 
 build-setup:
 	@if [[ ! -d "build" ]]; then    \
 		mkdir build;                \
+	fi
+	@if [[ ! -e "./docs/openapi.yaml" ]]; then                                       \
+		curl -so ./docs/openapi.yaml http://localhost:8080/swagger/file/default.yaml; \
 	fi
 .PHONY: build-setup
 

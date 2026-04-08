@@ -24,38 +24,29 @@ class ApiEndpoints {
 	public const DEFAULT_BASE_URL = 'https://api.honesthosting.io';
 
 	/**
-	 * Filter for eligible destination sites (import key scoped).
+	 * Get the destination site metadata (import key scoped, returns single site).
 	 *
 	 * @var string
 	 */
-	public const FILTER_SITES = '/v1/siteImport/site/filter';
+	public const GET_SITE = '/v1/siteImport';
 
 	/**
-	 * Create a new import session for a destination site.
-	 * Requires sprintf with siteId.
+	 * Create a new import session.
 	 *
 	 * @var string
 	 */
-	public const CREATE_IMPORT = '/v1/siteImport/site/%s';
+	public const CREATE_IMPORT = '/v1/siteImport';
 
 	/**
 	 * Validate a pending import (preflight capacity, destination readiness).
-	 * Requires sprintf with siteId.
 	 *
 	 * @var string
 	 */
-	public const VALIDATE_IMPORT = '/v1/siteImport/site/%s/validate';
-
-	/**
-	 * List available import sessions.
-	 *
-	 * @var string
-	 */
-	public const FILTER_IMPORTS = '/v1/siteImport/filter';
+	public const VALIDATE_IMPORT = '/v1/siteImport/validate';
 
 	/**
 	 * Get import session info (status, progress, errors).
-	 * Requires sprintf with importId.
+	 * Requires sprintf with uuid.
 	 *
 	 * @var string
 	 */
@@ -63,19 +54,18 @@ class ApiEndpoints {
 
 	/**
 	 * Obtain presigned S3 URL for chunked upload.
-	 * Requires sprintf with importId.
+	 * Requires sprintf with uuid.
 	 *
 	 * @var string
 	 */
 	public const GET_UPLOAD_URL = '/v1/siteImport/%s/uploadUrl';
 
 	/**
-	 * Check if destination is ready for import.
-	 * Requires sprintf with importId.
+	 * Finalize a site import (signal backend that upload is complete).
 	 *
 	 * @var string
 	 */
-	public const CHECK_READY = '/v1/siteImport/%s/ready';
+	public const FINALIZE_IMPORT = '/v1/siteImport/finalize';
 
 	/**
 	 * Get the effective API base URL.
@@ -106,10 +96,10 @@ class ApiEndpoints {
 	}
 
 	/**
-	 * Validate that a base URL is acceptable (HTTPS required).
+	 * Validate that a base URL is acceptable (HTTP or HTTPS).
 	 *
 	 * @param string $url The URL to validate.
-	 * @return bool True if valid HTTPS URL.
+	 * @return bool True if valid HTTP or HTTPS URL.
 	 */
 	public static function is_valid_base_url( string $url ): bool {
 		$parsed = wp_parse_url( $url );
@@ -117,6 +107,8 @@ class ApiEndpoints {
 			return false;
 		}
 
-		return 'https' === strtolower( $parsed['scheme'] );
+		$scheme = strtolower( $parsed['scheme'] );
+
+		return 'http' === $scheme || 'https' === $scheme;
 	}
 }

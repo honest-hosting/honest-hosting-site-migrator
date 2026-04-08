@@ -46,23 +46,31 @@ class ApiEndpointsTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * url() builds correct full URL without parameters.
+	 * url() builds correct full URL for GET_SITE.
 	 */
-	public function test_url_without_params(): void {
-		$url = ApiEndpoints::url( ApiEndpoints::FILTER_SITES );
-		$this->assertEquals( 'https://api.honesthosting.io/v1/siteImport/site/filter', $url );
+	public function test_url_get_site(): void {
+		$url = ApiEndpoints::url( ApiEndpoints::GET_SITE );
+		$this->assertEquals( 'https://api.honesthosting.io/v1/siteImport', $url );
 	}
 
 	/**
-	 * url() substitutes parameters into placeholders.
+	 * url() builds correct full URL for CREATE_IMPORT.
 	 */
-	public function test_url_with_params(): void {
-		$url = ApiEndpoints::url( ApiEndpoints::CREATE_IMPORT, '01ABC123' );
-		$this->assertEquals( 'https://api.honesthosting.io/v1/siteImport/site/01ABC123', $url );
+	public function test_url_create_import(): void {
+		$url = ApiEndpoints::url( ApiEndpoints::CREATE_IMPORT );
+		$this->assertEquals( 'https://api.honesthosting.io/v1/siteImport', $url );
 	}
 
 	/**
-	 * url() substitutes importId for GET_IMPORT.
+	 * url() builds correct full URL for VALIDATE_IMPORT.
+	 */
+	public function test_url_validate_import(): void {
+		$url = ApiEndpoints::url( ApiEndpoints::VALIDATE_IMPORT );
+		$this->assertEquals( 'https://api.honesthosting.io/v1/siteImport/validate', $url );
+	}
+
+	/**
+	 * url() substitutes uuid for GET_IMPORT.
 	 */
 	public function test_url_get_import(): void {
 		$url = ApiEndpoints::url( ApiEndpoints::GET_IMPORT, '01XYZ789' );
@@ -70,7 +78,7 @@ class ApiEndpointsTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * url() substitutes importId for GET_UPLOAD_URL.
+	 * url() substitutes uuid for GET_UPLOAD_URL.
 	 */
 	public function test_url_get_upload_url(): void {
 		$url = ApiEndpoints::url( ApiEndpoints::GET_UPLOAD_URL, '01XYZ789' );
@@ -78,11 +86,11 @@ class ApiEndpointsTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * url() substitutes importId for CHECK_READY.
+	 * url() builds correct full URL for FINALIZE_IMPORT.
 	 */
-	public function test_url_check_ready(): void {
-		$url = ApiEndpoints::url( ApiEndpoints::CHECK_READY, '01XYZ789' );
-		$this->assertEquals( 'https://api.honesthosting.io/v1/siteImport/01XYZ789/ready', $url );
+	public function test_url_finalize_import(): void {
+		$url = ApiEndpoints::url( ApiEndpoints::FINALIZE_IMPORT );
+		$this->assertEquals( 'https://api.honesthosting.io/v1/siteImport/finalize', $url );
 	}
 
 	/**
@@ -90,8 +98,8 @@ class ApiEndpointsTest extends WP_UnitTestCase {
 	 */
 	public function test_url_with_custom_base(): void {
 		update_option( 'hh_migrator_api_base_url', 'https://custom.example.com' );
-		$url = ApiEndpoints::url( ApiEndpoints::FILTER_SITES );
-		$this->assertEquals( 'https://custom.example.com/v1/siteImport/site/filter', $url );
+		$url = ApiEndpoints::url( ApiEndpoints::GET_SITE );
+		$this->assertEquals( 'https://custom.example.com/v1/siteImport', $url );
 	}
 
 	/**
@@ -99,8 +107,8 @@ class ApiEndpointsTest extends WP_UnitTestCase {
 	 */
 	public function test_url_strips_trailing_slash(): void {
 		update_option( 'hh_migrator_api_base_url', 'https://api.honesthosting.io/' );
-		$url = ApiEndpoints::url( ApiEndpoints::FILTER_SITES );
-		$this->assertEquals( 'https://api.honesthosting.io/v1/siteImport/site/filter', $url );
+		$url = ApiEndpoints::url( ApiEndpoints::GET_SITE );
+		$this->assertEquals( 'https://api.honesthosting.io/v1/siteImport', $url );
 	}
 
 	/**
@@ -131,12 +139,11 @@ class ApiEndpointsTest extends WP_UnitTestCase {
 	 * All endpoint constants are defined.
 	 */
 	public function test_all_endpoint_constants_defined(): void {
-		$this->assertNotEmpty( ApiEndpoints::FILTER_SITES );
+		$this->assertNotEmpty( ApiEndpoints::GET_SITE );
 		$this->assertNotEmpty( ApiEndpoints::CREATE_IMPORT );
 		$this->assertNotEmpty( ApiEndpoints::VALIDATE_IMPORT );
-		$this->assertNotEmpty( ApiEndpoints::FILTER_IMPORTS );
 		$this->assertNotEmpty( ApiEndpoints::GET_IMPORT );
 		$this->assertNotEmpty( ApiEndpoints::GET_UPLOAD_URL );
-		$this->assertNotEmpty( ApiEndpoints::CHECK_READY );
+		$this->assertNotEmpty( ApiEndpoints::FINALIZE_IMPORT );
 	}
 }

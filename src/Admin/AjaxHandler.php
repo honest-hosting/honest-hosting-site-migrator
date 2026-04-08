@@ -12,11 +12,14 @@ defined( 'ABSPATH' ) || exit;
 use HonestHosting\SiteMigrator\Api\ApiEndpoints;
 use HonestHosting\SiteMigrator\Api\HonestHostingClient;
 use HonestHosting\SiteMigrator\Log\MigrationLogger;
+use HonestHosting\SiteMigrator\Migration\BackgroundRunner;
 use HonestHosting\SiteMigrator\Migration\MigrationOrchestrator;
 use HonestHosting\SiteMigrator\Migration\SessionManager;
+use HonestHosting\SiteMigrator\Preflight\PreflightResult;
 use HonestHosting\SiteMigrator\Preflight\PreflightRunner;
 use HonestHosting\SiteMigrator\Schedule\CronScheduler;
 use HonestHosting\SiteMigrator\Util\ChunkSizeValidator;
+use WP_Error;
 
 /**
  * Registers and handles all AJAX actions for the migrator admin UI.
@@ -32,14 +35,14 @@ class AjaxHandler {
 		$actions = array(
 			'hh_migrator_validate_key',
 			'hh_migrator_save_config',
-			'hh_migrator_list_destinations',
-			'hh_migrator_select_destination',
 			'hh_migrator_run_preflight',
 			'hh_migrator_start_migration',
 			'hh_migrator_resume_migration',
 			'hh_migrator_get_status',
 			'hh_migrator_cancel_migration',
 			'hh_migrator_update_schedule',
+			'hh_migrator_refresh_log',
+			'hh_migrator_clear_log',
 			'hh_migrator_download_debug',
 		);
 
@@ -55,7 +58,7 @@ class AjaxHandler {
 	}
 
 	/**
-	 * Validate the import key by attempting to list destination sites.
+	 * Validate the import key by retrieving the destination site info.
 	 *
 	 * @return void
 	 */
@@ -78,18 +81,28 @@ class AjaxHandler {
 		update_option( 'hh_migrator_import_key', $import_key );
 
 		$client   = new HonestHostingClient( $import_key );
-		$response = $client->filter_sites();
+		$response = $client->get_site();
 
 		if ( is_wp_error( $response ) ) {
-			wp_send_json_error(
-				array( 'message' => $response->get_error_message() )
-			);
+			$error_data = $response->get_error_data();
+			$status     = is_array( $error_data ) ? ( $error_data['status'] ?? 0 ) : 0;
+			$message    = ( 401 === $status || 403 === $status )
+				? __( 'Could not validate Site Import Key, is it valid?', 'honest-hosting-site-migrator' )
+				: $response->get_error_message();
+
+			wp_send_json_error( array( 'message' => $message ) );
+		}
+
+		// Auto-store destination site UUID from the response.
+		$site_uuid = $response['uuid'] ?? '';
+		if ( ! empty( $site_uuid ) ) {
+			update_option( 'hh_migrator_destination_site_id', $site_uuid );
 		}
 
 		wp_send_json_success(
 			array(
 				'message' => __( 'Import key validated successfully.', 'honest-hosting-site-migrator' ),
-				'sites'   => $response['sites'],
+				'site'    => $response,
 			)
 		);
 	}
@@ -136,50 +149,17 @@ class AjaxHandler {
 			update_option( 'hh_migrator_import_key', $import_key );
 		}
 
-		wp_send_json_success(
-			array( 'message' => __( 'Configuration saved.', 'honest-hosting-site-migrator' ) )
-		);
-	}
+		// Run preflight checks and log results.
+		$result = $this->run_and_log_preflight();
 
-	/**
-	 * List eligible destination sites.
-	 *
-	 * @return void
-	 */
-	public function handle_list_destinations(): void {
-		$this->verify_request();
-
-		$client   = new HonestHostingClient();
-		$response = $client->filter_sites();
-
-		if ( is_wp_error( $response ) ) {
-			wp_send_json_error( array( 'message' => $response->get_error_message() ) );
-		}
-
-		wp_send_json_success( array( 'sites' => $response['sites'] ) );
-	}
-
-	/**
-	 * Select a destination site.
-	 *
-	 * @return void
-	 */
-	public function handle_select_destination(): void {
-		$this->verify_request();
-
-		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- nonce verified in verify_request().
-		$site_id = sanitize_text_field( wp_unslash( $_POST['site_id'] ?? '' ) );
-
-		if ( empty( $site_id ) ) {
-			wp_send_json_error( array( 'message' => __( 'Site ID is required.', 'honest-hosting-site-migrator' ) ) );
-		}
-
-		update_option( 'hh_migrator_destination_site_id', $site_id );
+		$message = $result->has_blocking_errors()
+			? __( 'Configuration saved. Preflight checks found errors — review the migration log.', 'honest-hosting-site-migrator' )
+			: __( 'Configuration saved. Preflight checks passed.', 'honest-hosting-site-migrator' );
 
 		wp_send_json_success(
 			array(
-				'message' => __( 'Destination site selected.', 'honest-hosting-site-migrator' ),
-				'site_id' => $site_id,
+				'message'    => $message,
+				'has_errors' => $result->has_blocking_errors(),
 			)
 		);
 	}
@@ -192,8 +172,7 @@ class AjaxHandler {
 	public function handle_run_preflight(): void {
 		$this->verify_request();
 
-		$runner = new PreflightRunner();
-		$result = $runner->run();
+		$result = $this->run_and_log_preflight();
 
 		wp_send_json_success(
 			array(
@@ -201,6 +180,55 @@ class AjaxHandler {
 				'has_errors' => $result->has_blocking_errors(),
 			)
 		);
+	}
+
+	/**
+	 * Run preflight checks, log results to the migration log, and record the timestamp.
+	 *
+	 * @return PreflightResult
+	 */
+	private function run_and_log_preflight(): PreflightResult {
+		$runner = new PreflightRunner();
+		$result = $runner->run();
+
+		$logger    = new MigrationLogger();
+		$level_map = array(
+			'info'    => 'INFO',
+			'warning' => 'WARN',
+			'error'   => 'ERROR',
+		);
+		foreach ( $result->to_array() as $item ) {
+			$source = $item['source'];
+			$event  = 'preflight.' . $item['type'] . '.' . $source;
+			$level  = $level_map[ $item['type'] ] ?? 'INFO';
+			$logger->log( '', $event, $item['message'], array(), $level );
+		}
+
+		update_option( 'hh_migrator_last_preflight', time() );
+
+		return $result;
+	}
+
+	/**
+	 * Ensure preflight has been run at least once. Returns WP_Error if it fails.
+	 *
+	 * @return true|WP_Error
+	 */
+	private function ensure_preflight() {
+		$last_preflight = (int) get_option( 'hh_migrator_last_preflight', 0 );
+		if ( $last_preflight > 0 ) {
+			return true;
+		}
+
+		$result = $this->run_and_log_preflight();
+		if ( $result->has_blocking_errors() ) {
+			return new WP_Error(
+				'hh_migrator_preflight_failed',
+				__( 'Preflight checks found blocking errors. Review the migration log before starting.', 'honest-hosting-site-migrator' )
+			);
+		}
+
+		return true;
 	}
 
 	/**
@@ -216,17 +244,38 @@ class AjaxHandler {
 		$site_id = (string) get_option( 'hh_migrator_destination_site_id', '' );
 
 		if ( empty( $site_id ) ) {
-			wp_send_json_error( array( 'message' => __( 'No destination site selected.', 'honest-hosting-site-migrator' ) ) );
+			wp_send_json_error( array( 'message' => __( 'No destination site selected. Please validate your import key first.', 'honest-hosting-site-migrator' ) ) );
 		}
 
+		// Run preflight if not previously completed.
+		$preflight = $this->ensure_preflight();
+		if ( is_wp_error( $preflight ) ) {
+			wp_send_json_error( array( 'message' => $preflight->get_error_message() ) );
+		}
+
+		// Prepare synchronously so API errors (409, 401, etc.) are returned to the user.
 		$orchestrator = new MigrationOrchestrator();
-		$result       = $orchestrator->start( $site_id, $mode );
+		$state        = $orchestrator->prepare( $site_id, $mode );
 
-		if ( is_wp_error( $result ) ) {
-			wp_send_json_error( array( 'message' => $result->get_error_message() ) );
+		if ( is_wp_error( $state ) ) {
+			wp_send_json_error( array( 'message' => $state->get_error_message() ) );
 		}
 
-		wp_send_json_success( $result );
+		$import_id = $state['import_id'] ?? '';
+
+		// Persist the active import UUID so the UI can poll status.
+		update_option( 'hh_migrator_active_import_id', $import_id );
+
+		// Dispatch the actual export/upload work in the background.
+		$runner = new BackgroundRunner();
+		$runner->dispatch_run( $import_id, $mode );
+
+		wp_send_json_success(
+			array(
+				'message'   => __( 'Migration started in the background. Refresh the log to monitor progress.', 'honest-hosting-site-migrator' ),
+				'import_id' => $import_id,
+			) 
+		);
 	}
 
 	/**
@@ -237,39 +286,54 @@ class AjaxHandler {
 	public function handle_resume_migration(): void {
 		$this->verify_request();
 
-		$orchestrator = new MigrationOrchestrator();
-		$result       = $orchestrator->resume();
-
-		if ( is_wp_error( $result ) ) {
-			wp_send_json_error( array( 'message' => $result->get_error_message() ) );
+		// Run preflight if not previously completed.
+		$preflight = $this->ensure_preflight();
+		if ( is_wp_error( $preflight ) ) {
+			wp_send_json_error( array( 'message' => $preflight->get_error_message() ) );
 		}
 
-		wp_send_json_success( $result );
+		$runner = new BackgroundRunner();
+		$runner->dispatch_resume();
+
+		wp_send_json_success( array( 'message' => __( 'Migration resumed in the background. Refresh the log to monitor progress.', 'honest-hosting-site-migrator' ) ) );
 	}
 
 	/**
-	 * Get migration status.
+	 * Get migration status from the backend API.
 	 *
 	 * @return void
 	 */
 	public function handle_get_status(): void {
 		$this->verify_request();
 
-		// phpcs:ignore WordPress.Security.NonceVerification.Missing -- nonce verified in verify_request().
-		$import_id = sanitize_text_field( wp_unslash( $_POST['import_id'] ?? '' ) );
+		$import_id = (string) get_option( 'hh_migrator_active_import_id', '' );
 
 		if ( empty( $import_id ) ) {
-			wp_send_json_error( array( 'message' => __( 'Import ID is required.', 'honest-hosting-site-migrator' ) ) );
+			wp_send_json_success( array( 'status' => 'none' ) );
 		}
 
-		$session_manager = new SessionManager();
-		$state           = $session_manager->load( $import_id );
+		$client   = new HonestHostingClient();
+		$response = $client->get_import( $import_id );
 
-		if ( null === $state ) {
-			wp_send_json_error( array( 'message' => __( 'Session not found.', 'honest-hosting-site-migrator' ) ) );
+		if ( is_wp_error( $response ) ) {
+			// Import not found or key invalid — clear the stored ID.
+			delete_option( 'hh_migrator_active_import_id' );
+			wp_send_json_success( array( 'status' => 'none' ) );
 		}
 
-		wp_send_json_success( $state );
+		$status = $response['status'] ?? 'unknown';
+
+		// Clear stored ID if the import has reached a terminal state.
+		if ( in_array( $status, array( 'completed', 'cancelled', 'error' ), true ) ) {
+			delete_option( 'hh_migrator_active_import_id' );
+		}
+
+		wp_send_json_success(
+			array(
+				'import_id' => $import_id,
+				'status'    => $status,
+			) 
+		);
 	}
 
 	/**
@@ -286,6 +350,8 @@ class AjaxHandler {
 		if ( is_wp_error( $result ) ) {
 			wp_send_json_error( array( 'message' => $result->get_error_message() ) );
 		}
+
+		delete_option( 'hh_migrator_active_import_id' );
 
 		wp_send_json_success( array( 'message' => __( 'Migration cancelled.', 'honest-hosting-site-migrator' ) ) );
 	}
@@ -315,6 +381,44 @@ class AjaxHandler {
 		$scheduler->update_schedule( '1' === $enabled, $interval );
 
 		wp_send_json_success( array( 'message' => __( 'Schedule updated.', 'honest-hosting-site-migrator' ) ) );
+	}
+
+	/**
+	 * Refresh migration log entries.
+	 *
+	 * @return void
+	 */
+	public function handle_refresh_log(): void {
+		$this->verify_request();
+
+		$logger  = new MigrationLogger();
+		$entries = $logger->get_recent( 100 );
+
+		$rows = array();
+		foreach ( $entries as $entry ) {
+			$rows[] = array(
+				'created_at' => $entry->created_at,
+				'level'      => $entry->level,
+				'event'      => $entry->event,
+				'message'    => $entry->message,
+			);
+		}
+
+		wp_send_json_success( array( 'entries' => $rows ) );
+	}
+
+	/**
+	 * Clear all migration log entries.
+	 *
+	 * @return void
+	 */
+	public function handle_clear_log(): void {
+		$this->verify_request();
+
+		$logger = new MigrationLogger();
+		$logger->clear();
+
+		wp_send_json_success( array( 'message' => __( 'Log cleared.', 'honest-hosting-site-migrator' ) ) );
 	}
 
 	/**

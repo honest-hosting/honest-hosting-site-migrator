@@ -52,42 +52,52 @@ class DestinationCapacityCheck implements PreflightCheckInterface {
 	 * @return void
 	 */
 	public function run( PreflightResult $result ): void {
-		$site_id = (string) get_option( 'hh_migrator_destination_site_id', '' );
-
-		if ( empty( $site_id ) ) {
-			$result->add_info( 'capacity_skipped', __( 'No destination site selected. Capacity check skipped.', 'honest-hosting-site-migrator' ) );
-			return;
-		}
-
 		$estimates = $this->estimates ?? $this->gather_estimates();
 
-		$response = $this->client->validate_import( $site_id, $estimates );
+		// Build SiteImportRequest body for validation.
+		$request_body = array(
+			'file_bytes'        => $estimates['file_bytes'],
+			'file_count'        => $estimates['file_count'],
+			'db_bytes'          => $estimates['db_bytes'],
+			'wordpress_version' => get_bloginfo( 'version' ),
+			'php_version'       => PHP_VERSION,
+			'multisite'         => is_multisite(),
+		);
+
+		$response = $this->client->validate_import( $request_body );
 
 		if ( is_wp_error( $response ) ) {
+			// A 400 response indicates validation errors.
+			$error_data = $response->get_error_data();
+			$api_errors = array();
+
+			if ( is_array( $error_data ) && ! empty( $error_data['response'] ) ) {
+				$api_response = $error_data['response'];
+				$api_errors   = $api_response['errors'] ?? array();
+			}
+
+			if ( ! empty( $api_errors ) ) {
+				foreach ( $api_errors as $error ) {
+					$message = is_string( $error ) ? $error : __( 'Capacity insufficient.', 'honest-hosting-site-migrator' );
+					$result->add_error( 'capacity_exceeded', $message, 'destination' );
+				}
+				return;
+			}
+
 			$result->add_warning(
 				'capacity_check_failed',
 				sprintf(
 					/* translators: %s: error message */
-					__( 'Could not validate destination capacity: %s', 'honest-hosting-site-migrator' ),
+					__( 'Could not validate capacity: %s', 'honest-hosting-site-migrator' ),
 					$response->get_error_message()
-				)
+				),
+				'destination'
 			);
 			return;
 		}
 
-		// Backend returns validation result.
-		$ok     = $response['ok'] ?? $response['valid'] ?? true;
-		$errors = $response['errors'] ?? array();
-
-		if ( $ok && empty( $errors ) ) {
-			$result->add_info( 'capacity_ok', __( 'Destination has sufficient capacity for this migration.', 'honest-hosting-site-migrator' ) );
-			return;
-		}
-
-		foreach ( $errors as $error ) {
-			$message = is_string( $error ) ? $error : ( $error['message'] ?? __( 'Destination capacity insufficient.', 'honest-hosting-site-migrator' ) );
-			$result->add_error( 'capacity_exceeded', $message );
-		}
+		// 200 response means validation passed.
+		$result->add_info( 'capacity_ok', __( 'Sufficient capacity for this migration.', 'honest-hosting-site-migrator' ), 'destination' );
 	}
 
 	/**

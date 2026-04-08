@@ -33,11 +33,25 @@ class ChunkSizeValidator {
 	public const MAX_BYTES = 200 * 1024 * 1024;
 
 	/**
-	 * Default chunk size in bytes (2 MB).
+	 * Fallback chunk size in bytes (2 MB) for constrained environments.
 	 *
 	 * @var int
 	 */
-	public const DEFAULT_BYTES = 2 * 1024 * 1024;
+	public const FALLBACK_BYTES = 2 * 1024 * 1024;
+
+	/**
+	 * Memory threshold below which we use the fallback chunk size (100 MB).
+	 *
+	 * @var int
+	 */
+	private const MEMORY_THRESHOLD = 100 * 1024 * 1024;
+
+	/**
+	 * Percentage of memory limit to use as default chunk size.
+	 *
+	 * @var float
+	 */
+	private const MEMORY_RATIO = 0.20;
 
 	/**
 	 * Parse a human-readable chunk size string into bytes.
@@ -98,6 +112,10 @@ class ChunkSizeValidator {
 	/**
 	 * Get the current configured chunk size in bytes.
 	 *
+	 * If the user has not configured a chunk size, the default is computed
+	 * from the PHP memory limit: 20% of memory_limit rounded to the nearest
+	 * MB when memory_limit >= 100 MB, otherwise 2 MB.
+	 *
 	 * @return int Chunk size in bytes.
 	 */
 	public static function get_configured_size(): int {
@@ -110,6 +128,44 @@ class ChunkSizeValidator {
 			}
 		}
 
-		return self::DEFAULT_BYTES;
+		return self::get_default_size();
+	}
+
+	/**
+	 * Compute the default chunk size based on the PHP memory limit.
+	 *
+	 * If memory_limit >= 100 MB: 20% of memory_limit, rounded to nearest MB.
+	 * If memory_limit < 100 MB or unlimited (-1): 2 MB fallback.
+	 *
+	 * @return int Default chunk size in bytes.
+	 */
+	public static function get_default_size(): int {
+		$memory_limit = self::get_memory_limit_bytes();
+
+		if ( $memory_limit < self::MEMORY_THRESHOLD ) {
+			return self::FALLBACK_BYTES;
+		}
+
+		$chunk_bytes = (int) ( $memory_limit * self::MEMORY_RATIO );
+
+		// Round to nearest MB.
+		$mb          = 1024 * 1024;
+		$chunk_bytes = (int) ( round( $chunk_bytes / $mb ) * $mb );
+
+		return max( self::MIN_BYTES, min( self::MAX_BYTES, $chunk_bytes ) );
+	}
+
+	/**
+	 * Get the PHP memory_limit in bytes.
+	 *
+	 * @return int Memory limit in bytes. Returns 0 for unlimited (-1).
+	 */
+	private static function get_memory_limit_bytes(): int {
+		$limit = (string) ini_get( 'memory_limit' );
+		if ( '' === $limit || '-1' === $limit ) {
+			return 0;
+		}
+
+		return wp_convert_hr_to_bytes( $limit );
 	}
 }

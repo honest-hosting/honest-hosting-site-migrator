@@ -31,14 +31,14 @@ class ChunkEncoder {
 	}
 
 	/**
-	 * Encode a chunk.
+	 * Encode a single-entry chunk (database, manifest, etc.).
 	 *
 	 * @param string $data        Raw chunk data.
 	 * @param string $import_id   Import session ULID.
 	 * @param int    $chunk_index Zero-based chunk index.
 	 * @param string $source_path Source file path (relative) or table identifier.
-	 * @param string $type        Chunk type: 'file' or 'database'.
-	 * @param int    $offset      Byte offset within source file.
+	 * @param string $type        Chunk type: 'file', 'database', or 'manifest'.
+	 * @param int    $offset      Byte offset within source.
 	 * @return array{data: string, compressed: bool, metadata: array<string, mixed>}
 	 */
 	public function encode(
@@ -48,6 +48,39 @@ class ChunkEncoder {
 		string $source_path,
 		string $type = 'file',
 		int $offset = 0
+	): array {
+		$entries = array(
+			array(
+				'path'          => $source_path,
+				'source_offset' => $offset,
+				'size'          => strlen( $data ),
+			),
+		);
+
+		return $this->encode_multi( $data, $import_id, $chunk_index, $type, $entries );
+	}
+
+	/**
+	 * Encode a multi-entry chunk (bundled files).
+	 *
+	 * The data is the concatenation of all entries' content. Each entry
+	 * describes its path, source offset (within the original file), and
+	 * size (bytes in this chunk). The restore side uses entries to split
+	 * the decompressed data back into individual files.
+	 *
+	 * @param string                                                         $data        Raw concatenated data.
+	 * @param string                                                         $import_id   Import session ULID.
+	 * @param int                                                            $chunk_index Zero-based chunk index.
+	 * @param string                                                         $type        Chunk type.
+	 * @param array<int, array{path: string, source_offset: int, size: int}> $entries     File entries in this chunk.
+	 * @return array{data: string, compressed: bool, metadata: array<string, mixed>}
+	 */
+	public function encode_multi(
+		string $data,
+		string $import_id,
+		int $chunk_index,
+		string $type,
+		array $entries
 	): array {
 		$compressed = false;
 		$encoded    = $data;
@@ -63,9 +96,8 @@ class ChunkEncoder {
 		$metadata = array(
 			'import_id'     => $import_id,
 			'chunk_index'   => $chunk_index,
-			'source_path'   => $source_path,
 			'type'          => $type,
-			'offset'        => $offset,
+			'entries'       => $entries,
 			'original_size' => strlen( $data ),
 			'encoded_size'  => strlen( $encoded ),
 			'compressed'    => $compressed,
