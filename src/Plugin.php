@@ -52,7 +52,6 @@ class Plugin {
 	 */
 	private function __construct() {
 		add_action( 'plugins_loaded', array( $this, 'init' ) );
-		add_action( 'init', array( $this, 'load_textdomain' ) );
 		add_filter( 'cron_schedules', array( $this, 'register_cron_schedules' ) );
 
 		register_activation_hook( HH_MIGRATOR_FILE, array( $this, 'activate' ) );
@@ -76,20 +75,7 @@ class Plugin {
 			$this->ajax_handler = new Admin\AjaxHandler();
 		}
 
-		do_action( 'hh_migrator_init', $this );
-	}
-
-	/**
-	 * Load plugin text domain for translations.
-	 *
-	 * @return void
-	 */
-	public function load_textdomain(): void {
-		load_plugin_textdomain(
-			'honest-hosting-site-migrator',
-			false,
-			dirname( plugin_basename( HH_MIGRATOR_FILE ) ) . '/languages'
-		);
+		do_action( 'honest_hosting_site_migrator_init', $this );
 	}
 
 	/**

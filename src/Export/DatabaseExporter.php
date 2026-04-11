@@ -125,11 +125,16 @@ class DatabaseExporter {
 			return $checksums;
 		}
 
-		$table_list = implode( ', ', array_map( fn( $n ) => "`{$n}`", $table_names ) );
+		$placeholders = implode( ', ', array_fill( 0, count( $table_names ), '%i' ) );
 
-		// CHECKSUM TABLE requires literal table names — cannot use $wpdb->prepare() for identifiers.
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.NotPrepared, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-		$results = $wpdb->get_results( "CHECKSUM TABLE {$table_list}", ARRAY_A );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$results = $wpdb->get_results(
+			$wpdb->prepare(
+				"CHECKSUM TABLE {$placeholders}", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared, WordPress.DB.PreparedSQLPlaceholders.UnfinishedPrepare
+				...$table_names
+			),
+			ARRAY_A
+		);
 
 		if ( ! empty( $results ) ) {
 			foreach ( $results as $row ) {
@@ -259,8 +264,8 @@ class DatabaseExporter {
 		global $wpdb;
 
 		// CREATE TABLE statement.
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-		$create = $wpdb->get_row( "SHOW CREATE TABLE `{$table_name}`", ARRAY_A );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.DirectDatabaseQuery.SchemaChange
+		$create = $wpdb->get_row( $wpdb->prepare( 'SHOW CREATE TABLE %i', $table_name ), ARRAY_A );
 		if ( $create ) {
 			$buffer .= "DROP TABLE IF EXISTS `{$table_name}`;\n";
 			$buffer .= ( $create['Create Table'] ?? '' ) . ";\n\n";
@@ -273,10 +278,11 @@ class DatabaseExporter {
 		$offset = 0;
 
 		while ( true ) {
-			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 			$rows = $wpdb->get_results(
 				$wpdb->prepare(
-					"SELECT * FROM `{$table_name}` LIMIT %d OFFSET %d", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+					'SELECT * FROM %i LIMIT %d OFFSET %d',
+					$table_name,
 					self::BATCH_SIZE,
 					$offset
 				),
@@ -321,6 +327,7 @@ class DatabaseExporter {
 					}
 					$buffer = '';
 					++$chunk_index;
+					// phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- Reset PHP execution timer after each chunk flush to prevent timeout during large table exports on hosts with low max_execution_time.
 					set_time_limit( max( 60, (int) ini_get( 'max_execution_time' ) ) );
 				}
 			}
@@ -364,6 +371,7 @@ class DatabaseExporter {
 			return $result;
 		}
 
+		// phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- Reset PHP execution timer after final DB chunk upload to prevent timeout on hosts with low max_execution_time.
 		set_time_limit( max( 60, (int) ini_get( 'max_execution_time' ) ) );
 
 		// Record chunk reference.
@@ -399,8 +407,8 @@ class DatabaseExporter {
 		$binary_types = array( 'binary', 'varbinary', 'tinyblob', 'blob', 'mediumblob', 'longblob' );
 		$binary_cols  = array();
 
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-		$columns = $wpdb->get_results( "SHOW COLUMNS FROM `{$table_name}`", ARRAY_A );
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$columns = $wpdb->get_results( $wpdb->prepare( 'SHOW COLUMNS FROM %i', $table_name ), ARRAY_A );
 
 		if ( is_array( $columns ) ) {
 			foreach ( $columns as $col ) {

@@ -58,13 +58,13 @@ class PreflightRunner {
 	public function run(): PreflightResult {
 		$result = new PreflightResult();
 
-		do_action( 'hh_migrator_preflight_started' );
+		do_action( 'honest_hosting_site_migrator_preflight_started' );
 
 		foreach ( $this->checks as $check ) {
 			$check->run( $result );
 		}
 
-		do_action( 'hh_migrator_preflight_completed', $result );
+		do_action( 'honest_hosting_site_migrator_preflight_completed', $result );
 
 		return $result;
 	}

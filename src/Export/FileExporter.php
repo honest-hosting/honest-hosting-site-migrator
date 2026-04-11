@@ -125,6 +125,7 @@ class FileExporter {
 			// Reset execution timer and log progress periodically.
 			++$count;
 			if ( 0 === $count % 2500 ) {
+				// phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- Reset PHP execution timer to prevent timeout during long-running file scans on shared hosting with low max_execution_time limits.
 				set_time_limit( max( 60, (int) ini_get( 'max_execution_time' ) ) );
 				$this->logger->log( $import_id, 'file_scan.progress', sprintf( 'Scanned %d files...', $count ) );
 			}
@@ -421,6 +422,7 @@ class FileExporter {
 
 		$chunk_refs[] = array_merge( $encoded['metadata'], $result );
 
+		// phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- Reset PHP execution timer after each chunk upload to prevent timeout when exporting many files on hosts with low max_execution_time.
 		set_time_limit( max( 60, (int) ini_get( 'max_execution_time' ) ) );
 
 		return true;

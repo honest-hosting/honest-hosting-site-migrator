@@ -79,8 +79,8 @@ class PluginTest extends WP_UnitTestCase {
 	 * Verify the global helper function returns the plugin instance.
 	 */
 	public function test_global_helper_function(): void {
-		$this->assertTrue( function_exists( 'hh_migrator' ) );
-		$this->assertInstanceOf( Plugin::class, hh_migrator() );
-		$this->assertSame( Plugin::get_instance(), hh_migrator() );
+		$this->assertTrue( function_exists( 'honest_hosting_site_migrator' ) );
+		$this->assertInstanceOf( Plugin::class, honest_hosting_site_migrator() );
+		$this->assertSame( Plugin::get_instance(), honest_hosting_site_migrator() );
 	}
 }

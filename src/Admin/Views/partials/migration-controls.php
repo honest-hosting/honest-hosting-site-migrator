@@ -81,26 +81,26 @@ defined( 'ABSPATH' ) || exit;
 				</thead>
 				<tbody id="hh-migrator-log-body">
 					<?php
-					$hh_migrator_logger      = new \HonestHosting\SiteMigrator\Log\MigrationLogger();
-					$hh_migrator_total       = $hh_migrator_logger->get_count();
-					$hh_migrator_per_page    = 10;
-					$hh_migrator_total_pages = max( 1, (int) ceil( $hh_migrator_total / $hh_migrator_per_page ) );
-					$hh_migrator_entries     = $hh_migrator_logger->get_page( $hh_migrator_per_page, 0 );
+					$honest_hosting_site_migrator_logger      = new \HonestHosting\SiteMigrator\Log\MigrationLogger();
+					$honest_hosting_site_migrator_total       = $honest_hosting_site_migrator_logger->get_count();
+					$honest_hosting_site_migrator_per_page    = 10;
+					$honest_hosting_site_migrator_total_pages = max( 1, (int) ceil( $honest_hosting_site_migrator_total / $honest_hosting_site_migrator_per_page ) );
+					$honest_hosting_site_migrator_entries     = $honest_hosting_site_migrator_logger->get_page( $honest_hosting_site_migrator_per_page, 0 );
 
-					if ( empty( $hh_migrator_entries ) ) :
+					if ( empty( $honest_hosting_site_migrator_entries ) ) :
 						?>
 						<tr>
 							<td colspan="4"><?php esc_html_e( 'No log entries yet.', 'honest-hosting-site-migrator' ); ?></td>
 						</tr>
 						<?php
 					else :
-						foreach ( $hh_migrator_entries as $hh_migrator_entry ) :
+						foreach ( $honest_hosting_site_migrator_entries as $honest_hosting_site_migrator_entry ) :
 							?>
 							<tr>
-								<td><?php echo esc_html( $hh_migrator_entry->created_at ); ?></td>
-								<td><?php echo esc_html( $hh_migrator_entry->level ); ?></td>
-								<td><code><?php echo esc_html( $hh_migrator_entry->event ); ?></code></td>
-								<td><?php echo esc_html( $hh_migrator_entry->message ); ?></td>
+								<td><?php echo esc_html( $honest_hosting_site_migrator_entry->created_at ); ?></td>
+								<td><?php echo esc_html( $honest_hosting_site_migrator_entry->level ); ?></td>
+								<td><code><?php echo esc_html( $honest_hosting_site_migrator_entry->event ); ?></code></td>
+								<td><?php echo esc_html( $honest_hosting_site_migrator_entry->message ); ?></td>
 							</tr>
 							<?php
 						endforeach;
@@ -109,15 +109,15 @@ defined( 'ABSPATH' ) || exit;
 				</tbody>
 			</table>
 
-			<div id="hh-migrator-log-pagination" class="tablenav bottom" <?php echo $hh_migrator_total_pages <= 1 ? 'style="display:none;"' : ''; ?>>
+			<div id="hh-migrator-log-pagination" class="tablenav bottom" <?php echo $honest_hosting_site_migrator_total_pages <= 1 ? 'style="display:none;"' : ''; ?>>
 				<div class="tablenav-pages">
 					<span class="displaying-num" id="hh-migrator-log-total">
 						<?php
 						echo esc_html(
 							sprintf(
 								/* translators: %d: total number of log entries */
-								_n( '%d item', '%d items', $hh_migrator_total, 'honest-hosting-site-migrator' ),
-								$hh_migrator_total
+								_n( '%d item', '%d items', $honest_hosting_site_migrator_total, 'honest-hosting-site-migrator' ),
+								$honest_hosting_site_migrator_total
 							)
 						);
 						?>
@@ -127,9 +127,9 @@ defined( 'ABSPATH' ) || exit;
 						<span class="paging-input">
 							<span id="hh-migrator-log-current-page">1</span>
 							<?php esc_html_e( 'of', 'honest-hosting-site-migrator' ); ?>
-							<span id="hh-migrator-log-total-pages"><?php echo esc_html( (string) $hh_migrator_total_pages ); ?></span>
+							<span id="hh-migrator-log-total-pages"><?php echo esc_html( (string) $honest_hosting_site_migrator_total_pages ); ?></span>
 						</span>
-						<button type="button" class="button next-page" id="hh-migrator-log-next" <?php echo $hh_migrator_total_pages <= 1 ? 'disabled' : ''; ?>>&rsaquo;</button>
+						<button type="button" class="button next-page" id="hh-migrator-log-next" <?php echo $honest_hosting_site_migrator_total_pages <= 1 ? 'disabled' : ''; ?>>&rsaquo;</button>
 					</span>
 				</div>
 			</div>

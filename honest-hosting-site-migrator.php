@@ -35,8 +35,8 @@ if ( file_exists( HH_MIGRATOR_PATH . 'vendor/autoload.php' ) ) {
  *
  * @return \HonestHosting\SiteMigrator\Plugin
  */
-function hh_migrator() {
+function honest_hosting_site_migrator() {
 	return \HonestHosting\SiteMigrator\Plugin::get_instance();
 }
 
-hh_migrator();
+honest_hosting_site_migrator();
