@@ -16,7 +16,7 @@ help: ## Display this help screen (default)
 
 test: export TEST_TYPE ?= test:unit
 test: export TEST      ?=
-test: test-setup ## Invoke unit or integration tests: TEST="tests/Unit/BasicTest.php" TEST_TYPE=test:unit make test
+test: test-setup lint ## Invoke unit or integration tests: TEST="tests/Unit/BasicTest.php" TEST_TYPE=test:unit make test
 	@composer $(TEST_TYPE) $(TEST)
 .PHONY: test
 
@@ -38,12 +38,12 @@ fmt: ## Auto-fix code style issues: make fmt
 	@composer cs:fix
 .PHONY: fmt
 
-build: export VERSION     ?= $(if $(CI_COMMIT_REF_NAME),$(CI_COMMIT_REF_NAME),vLOCALDEV)
-build: export BUILD_DATE  ?= $(if $(CI_JOB_STARTED_AT),$(CI_JOB_STARTED_AT),$(shell date --rfc-3339=s))
-build: export COMMIT_HASH ?= $(if $(CI_COMMIT_SHA),$(CI_COMMIT_SHA),$(shell git rev-parse --short HEAD))
-build: build-setup composer-install lint ## Build distributable zip artifact
+export VERSION     ?= $(if $(TAG),$(TAG),vLOCALDEV)
+export BUILD_DATE  ?= $(if $(CI_JOB_STARTED_AT),$(CI_JOB_STARTED_AT),$(shell date --rfc-3339=s))
+export COMMIT_HASH ?= $(if $(CI_COMMIT_SHA),$(CI_COMMIT_SHA),$(shell git rev-parse --short HEAD))
+build: build-setup composer-install ## Build distributable zip artifact
 	@if [[ -n "${VERSION}" ]] && [[ ${VERSION} =~ [0-9]+\.[0-9]+\.[0-9]+ ]]; then                                                                                \
-		sed -i "s|Version: 1.0.0|Version: $(VERSION)|; s|'HH_MIGRATOR_VERSION', '1.0.0'|'HH_MIGRATOR_VERSION', '$(VERSION)'|;" honest-hosting-site-migrator.php; \
+		sed -i "s|Version:[[:space:]]*1\.0\.0|Version: $(VERSION)|; s|'HH_MIGRATOR_VERSION', '1.0.0'|'HH_MIGRATOR_VERSION', '$(VERSION)'|;" honest-hosting-site-migrator.php; \
 	fi
 	@rsync -av \
 		--exclude 'build/'              \
@@ -102,3 +102,26 @@ composer-install: ## Run composer install
 		composer install --no-dev --optimize-autoloader;     \
 	fi
 .PHONY: composer-install
+
+release: release-preflight release-tag build ## Cut a new release on GitHub: ENVIRONMENT=production TAG=0.0.1 make release
+	@gh release create "$(TAG)"                         \
+		"build/$(PLUGIN_NAME)-$(VERSION).zip"           \
+		"build/$(PLUGIN_NAME)-$(VERSION).zip.sha256"    \
+		--title "Release $(TAG)"                        \
+		--generate-notes                                \
+		--latest
+.PHONY: release
+
+release-tag:
+	@echo "Creating GitHub tag $(TAG)..."
+	@echo git tag "$(TAG)"
+	@echo git push origin "$(TAG)"
+.PHONY: release-tag
+
+release-preflight:
+	@test -n "$(TAG)" || (echo "ERROR: usage: ENVIRONMENT=production TAG=0.0.1 make release" && exit 1)
+	@echo "$(TAG)" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+([-.].+)?$$' || (echo "ERROR: TAG must look like 0.0.1" && exit 1)
+	@git diff --quiet || (echo "ERROR: working tree has unstaged changes" && exit 1)
+	@git diff --cached --quiet || (echo "ERROR: index has staged but uncommitted changes" && exit 1)
+	@git rev-parse "$(TAG)" >/dev/null 2>&1 && (echo "ERROR: tag $(TAG) already exists locally" && exit 1) || true
+.PHONY: release-preflight
