@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: HonestHosting Site Migrator
- * Plugin URI:  https://honesthosting.io
+ * Plugin URI:  https://github.com/honest-hosting/honest-hosting-site-migrator
  * Description: Migrate WordPress sites to HonestHosting via streamed, chunked, resumable exports.
  * Version: 0.0.1
  * Author:      HonestHosting
