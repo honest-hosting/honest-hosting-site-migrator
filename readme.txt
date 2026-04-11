@@ -3,7 +3,7 @@ Contributors: honesthosting
 Tags: migration, hosting, import, export, site-migrator
 Requires at least: 6.7
 Tested up to: 6.9
-Stable tag: 0.0.1
+Stable tag: 1.0.0
 Requires PHP: 8.0
 License: MIT
 License URI: https://opensource.org/licenses/MIT

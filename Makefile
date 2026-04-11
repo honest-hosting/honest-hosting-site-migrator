@@ -57,8 +57,9 @@ build: build-setup composer-install ## Build distributable zip artifact
 		--exclude 'docker-compose.yml'  \
 		--exclude 'Makefile'            \
 		./ build/$(PLUGIN_NAME)/
-	@if [[ -n "${VERSION}" ]] && [[ ${VERSION} =~ [0-9]+\.[0-9]+\.[0-9]+ ]]; then                                                                                \
-		sed -i "s|Version:[[:space:]]*1\.0\.0|Version: $(VERSION)|; s|'HH_MIGRATOR_VERSION', '1.0.0'|'HH_MIGRATOR_VERSION', '$(VERSION)'|;" build/$(PLUGIN_NAME)/honest-hosting-site-migrator.php; \
+	@if [[ -n "${VERSION}" ]] && [[ ${VERSION} =~ [0-9]+\.[0-9]+\.[0-9]+ ]]; then                                                                                                                   \
+		sed -i "s|Version:[[:space:]]*1\.0\.0|Version: $(VERSION)|; s|'HH_MIGRATOR_VERSION', '1.0.0'|'HH_MIGRATOR_VERSION', '$(VERSION)'|;" build/$(PLUGIN_NAME)/honest-hosting-site-migrator.php;  \
+		sed -i "s|Stable tag:[[:space:]]*1\.0\.0|Stable tag: $(VERSION)|" build/$(PLUGIN_NAME)/readme.txt;                                                                                          \
 	fi
 	@pushd build >/dev/null && zip -r $(PLUGIN_NAME)-$(VERSION).zip $(PLUGIN_NAME) >/dev/null
 	@pushd build >/dev/null && sha256sum $(PLUGIN_NAME)-$(VERSION).zip > $(PLUGIN_NAME)-$(VERSION).zip.sha256
