@@ -127,10 +127,13 @@ class ResumeHandler {
 			$skip_files = true;
 		}
 
+		$import_id = $state['import_id'] ?? '';
+		$store     = $this->session_manager->storage( $import_id );
+
 		return array(
 			'skip_files'       => $skip_files,
 			'skip_db'          => $skip_db,
-			'completed_files'  => $state['file_progress']['completed_file_paths'] ?? array(),
+			'completed_files'  => $store->get_completed_file_paths(),
 			'completed_tables' => $state['db_progress']['completed_table_names'] ?? array(),
 		);
 	}

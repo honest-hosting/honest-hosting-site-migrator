@@ -14,49 +14,49 @@ use WP_Error;
 /**
  * Validates and normalizes human-readable chunk size strings.
  *
- * Accepts: "2MB", "50Mb", "100mb". Range: 2 MB – 200 MB.
+ * Accepts: "5MB", "10Mb", "20mb". Range: 5 MB – 20 MB.
  */
 class ChunkSizeValidator {
 
 	/**
-	 * Minimum chunk size in bytes (2 MB).
+	 * Minimum chunk size in bytes (5 MB).
 	 *
 	 * @var int
 	 */
-	public const MIN_BYTES = 2 * 1024 * 1024;
+	public const MIN_BYTES = 5 * 1024 * 1024;
 
 	/**
-	 * Maximum chunk size in bytes (200 MB).
+	 * Maximum chunk size in bytes (20 MB).
 	 *
 	 * @var int
 	 */
-	public const MAX_BYTES = 200 * 1024 * 1024;
+	public const MAX_BYTES = 20 * 1024 * 1024;
 
 	/**
-	 * Fallback chunk size in bytes (2 MB) for constrained environments.
+	 * Default chunk size in bytes (10 MB).
 	 *
 	 * @var int
 	 */
-	public const FALLBACK_BYTES = 2 * 1024 * 1024;
+	public const DEFAULT_BYTES = 10 * 1024 * 1024;
 
 	/**
-	 * Memory threshold below which we use the fallback chunk size (100 MB).
+	 * Fallback chunk size in bytes (5 MB) for constrained environments.
 	 *
 	 * @var int
 	 */
-	private const MEMORY_THRESHOLD = 100 * 1024 * 1024;
+	public const FALLBACK_BYTES = 5 * 1024 * 1024;
 
 	/**
-	 * Percentage of memory limit to use as default chunk size.
+	 * Memory threshold below which we use the fallback chunk size (64 MB).
 	 *
-	 * @var float
+	 * @var int
 	 */
-	private const MEMORY_RATIO = 0.20;
+	private const MEMORY_THRESHOLD = 64 * 1024 * 1024;
 
 	/**
 	 * Parse a human-readable chunk size string into bytes.
 	 *
-	 * @param string $input User input, e.g. "2MB", "50Mb", "100mb".
+	 * @param string $input User input, e.g. "5MB", "10Mb", "20mb".
 	 * @return int|WP_Error Bytes on success, WP_Error on invalid input.
 	 */
 	public static function parse( string $input ) {
@@ -65,7 +65,7 @@ class ChunkSizeValidator {
 		if ( ! preg_match( '/^(\d+)\s*(MB|Mb|mb)$/', $input, $matches ) ) {
 			return new WP_Error(
 				'hh_migrator_invalid_chunk_size',
-				__( 'Chunk size must be a number followed by MB (e.g., "2MB", "50Mb", "100mb").', 'honest-hosting-site-migrator' )
+				__( 'Chunk size must be a number followed by MB (e.g., "5MB", "10Mb", "20mb").', 'honest-hosting-site-migrator' )
 			);
 		}
 
@@ -112,9 +112,8 @@ class ChunkSizeValidator {
 	/**
 	 * Get the current configured chunk size in bytes.
 	 *
-	 * If the user has not configured a chunk size, the default is computed
-	 * from the PHP memory limit: 20% of memory_limit rounded to the nearest
-	 * MB when memory_limit >= 100 MB, otherwise 2 MB.
+	 * Returns the user-configured value if valid, otherwise the default
+	 * (10 MB, or 5 MB on memory-constrained hosts).
 	 *
 	 * @return int Chunk size in bytes.
 	 */
@@ -132,27 +131,21 @@ class ChunkSizeValidator {
 	}
 
 	/**
-	 * Compute the default chunk size based on the PHP memory limit.
+	 * Compute the default chunk size.
 	 *
-	 * If memory_limit >= 100 MB: 20% of memory_limit, rounded to nearest MB.
-	 * If memory_limit < 100 MB or unlimited (-1): 2 MB fallback.
+	 * Returns 10 MB unless PHP memory_limit is below 64 MB, in which
+	 * case 5 MB is used as a safe fallback.
 	 *
 	 * @return int Default chunk size in bytes.
 	 */
 	public static function get_default_size(): int {
 		$memory_limit = self::get_memory_limit_bytes();
 
-		if ( $memory_limit < self::MEMORY_THRESHOLD ) {
+		if ( $memory_limit > 0 && $memory_limit < self::MEMORY_THRESHOLD ) {
 			return self::FALLBACK_BYTES;
 		}
 
-		$chunk_bytes = (int) ( $memory_limit * self::MEMORY_RATIO );
-
-		// Round to nearest MB.
-		$mb          = 1024 * 1024;
-		$chunk_bytes = (int) ( round( $chunk_bytes / $mb ) * $mb );
-
-		return max( self::MIN_BYTES, min( self::MAX_BYTES, $chunk_bytes ) );
+		return self::DEFAULT_BYTES;
 	}
 
 	/**

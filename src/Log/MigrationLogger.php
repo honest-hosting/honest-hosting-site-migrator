@@ -92,6 +92,45 @@ class MigrationLogger {
 	}
 
 	/**
+	 * Get a page of log entries.
+	 *
+	 * @param int $limit  Number of entries per page.
+	 * @param int $offset Offset from the start.
+	 * @return list<object{id: string, import_id: string, level: string, event: string, message: string, context: string, created_at: string}>
+	 */
+	public function get_page( int $limit, int $offset ): array {
+		global $wpdb;
+
+		$table = $this->get_table_name();
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$results = $wpdb->get_results(
+			$wpdb->prepare(
+				"SELECT * FROM {$table} ORDER BY created_at DESC LIMIT %d OFFSET %d", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				$limit,
+				$offset
+			)
+		);
+		return is_array( $results ) ? $results : array();
+	}
+
+	/**
+	 * Get total count of log entries.
+	 *
+	 * @return int
+	 */
+	public function get_count(): int {
+		global $wpdb;
+
+		$table = $this->get_table_name();
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		return (int) $wpdb->get_var(
+			"SELECT COUNT(*) FROM {$table}" // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		);
+	}
+
+	/**
 	 * Clear all log entries.
 	 *
 	 * @return void

@@ -99,7 +99,7 @@ class ApiEndpoints {
 	 * Validate that a base URL is acceptable (HTTP or HTTPS).
 	 *
 	 * @param string $url The URL to validate.
-	 * @return bool True if valid HTTP or HTTPS URL.
+	 * @return bool True if valid HTTPS URL.
 	 */
 	public static function is_valid_base_url( string $url ): bool {
 		$parsed = wp_parse_url( $url );
@@ -107,8 +107,6 @@ class ApiEndpoints {
 			return false;
 		}
 
-		$scheme = strtolower( $parsed['scheme'] );
-
-		return 'http' === $scheme || 'https' === $scheme;
+		return 'https' === strtolower( $parsed['scheme'] );
 	}
 }

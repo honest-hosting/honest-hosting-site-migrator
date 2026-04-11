@@ -115,6 +115,7 @@ class MigrationLoggerTest extends WP_UnitTestCase {
 		$sql = "CREATE TABLE IF NOT EXISTS {$table} (
 			id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
 			import_id VARCHAR(26) DEFAULT '' NOT NULL,
+			level VARCHAR(10) DEFAULT 'INFO' NOT NULL,
 			event VARCHAR(100) DEFAULT '' NOT NULL,
 			message TEXT NOT NULL,
 			context LONGTEXT DEFAULT '' NOT NULL,

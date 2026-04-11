@@ -106,39 +106,35 @@ class SessionManager {
 		}
 
 		return array(
-			'import_id'            => $store->get( 'import_id', $import_id ),
-			'destination_site_id'  => $store->get( 'destination_site_id', '' ),
-			'mode'                 => $store->get( 'mode', 'full' ),
-			'status'               => $status,
-			'chunk_size_bytes'     => $store->get( 'chunk_size_bytes', 2 * 1024 * 1024 ),
-			'created_at'           => $store->get( 'created_at' ),
-			'updated_at'           => $store->get( 'updated_at' ),
-			'total_files'          => $store->get( 'total_files', 0 ),
-			'total_bytes'          => $store->get( 'total_bytes', 0 ),
-			'uploaded_bytes'       => $store->get( 'uploaded_bytes', 0 ),
-			'total_tables'         => $store->get( 'total_tables', 0 ),
-			'current_file'         => $store->get( 'current_file' ),
-			'current_table'        => $store->get( 'current_table' ),
-			'preflight_result'     => $store->get( 'preflight_result' ),
-			'retry_count'          => $store->get( 'retry_count', 0 ),
-			'last_error'           => $store->get( 'last_error' ),
-			'file_progress'        => array(
-				'total_files'          => $store->get( 'total_files', 0 ),
-				'completed_files'      => $store->get_completed_file_count(),
-				'current_file'         => $store->get( 'current_file' ),
-				'completed_file_paths' => $store->get_completed_file_paths(),
-				'total_bytes'          => $store->get( 'total_bytes', 0 ),
-				'uploaded_bytes'       => $store->get( 'uploaded_bytes', 0 ),
+			'import_id'           => $store->get( 'import_id', $import_id ),
+			'destination_site_id' => $store->get( 'destination_site_id', '' ),
+			'mode'                => $store->get( 'mode', 'full' ),
+			'status'              => $status,
+			'chunk_size_bytes'    => $store->get( 'chunk_size_bytes', 10 * 1024 * 1024 ),
+			'created_at'          => $store->get( 'created_at' ),
+			'updated_at'          => $store->get( 'updated_at' ),
+			'total_files'         => $store->get( 'total_files', 0 ),
+			'total_bytes'         => $store->get( 'total_bytes', 0 ),
+			'uploaded_bytes'      => $store->get( 'uploaded_bytes', 0 ),
+			'total_tables'        => $store->get( 'total_tables', 0 ),
+			'current_file'        => $store->get( 'current_file' ),
+			'current_table'       => $store->get( 'current_table' ),
+			'preflight_result'    => $store->get( 'preflight_result' ),
+			'retry_count'         => $store->get( 'retry_count', 0 ),
+			'last_error'          => $store->get( 'last_error' ),
+			'file_progress'       => array(
+				'total_files'     => $store->get( 'total_files', 0 ),
+				'completed_files' => $store->get_completed_file_count(),
+				'current_file'    => $store->get( 'current_file' ),
+				'total_bytes'     => $store->get( 'total_bytes', 0 ),
+				'uploaded_bytes'  => $store->get( 'uploaded_bytes', 0 ),
 			),
-			'db_progress'          => array(
+			'db_progress'         => array(
 				'total_tables'          => $store->get( 'total_tables', 0 ),
 				'completed_tables'      => count( $store->get_completed_table_names() ),
 				'current_table'         => $store->get( 'current_table' ),
 				'completed_table_names' => $store->get_completed_table_names(),
 			),
-			'chunk_references'     => $store->get_chunk_refs(),
-			'file_manifest_hashes' => $store->get_file_hashes(),
-			'db_table_checksums'   => $store->get_table_checksums(),
 		);
 	}
 
@@ -170,7 +166,7 @@ class SessionManager {
 					// Handled via add_chunk_refs in exporters now — skip full replace.
 					break;
 
-				case 'file_manifest_hashes':
+				case 'file_manifest_meta':
 					if ( is_array( $value ) ) {
 						$store->mark_files_completed( $value );
 					}
@@ -241,6 +237,16 @@ class SessionManager {
 	}
 
 	/**
+	 * Check if a session has been cancelled.
+	 *
+	 * @param string $import_id Import session ULID.
+	 * @return bool
+	 */
+	public function is_cancelled( string $import_id ): bool {
+		return 'cancelled' === $this->storage( $import_id )->get( 'status' );
+	}
+
+	/**
 	 * List all sessions.
 	 *
 	 * Scans for SQLite DB files or MySQL session records.
@@ -281,7 +287,7 @@ class SessionManager {
 	 */
 	public function find_incomplete( string $destination_site_id ): ?array {
 		$sessions            = $this->list_all();
-		$incomplete_statuses = array( 'pending', 'preflight', 'exporting_files', 'exporting_db', 'uploading', 'completing' );
+		$incomplete_statuses = array( 'pending', 'preflight', 'exporting_files', 'exporting_db', 'uploading', 'completing', 'failed' );
 
 		foreach ( $sessions as $session ) {
 			if (

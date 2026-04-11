@@ -56,7 +56,7 @@ class HonestHostingClientTest extends WP_UnitTestCase {
 
 		$this->assertNotNull( $captured_args );
 		$this->assertEquals( 'application/json', $captured_args['headers']['Content-Type'] );
-		$this->assertEquals( $this->test_key, $captured_args['headers']['X-HH-Site-Import-Key'] );
+		$this->assertEquals( $this->test_key, $captured_args['headers']['X-API-Site-Import-Token'] );
 	}
 
 	/**
@@ -321,6 +321,6 @@ class HonestHostingClientTest extends WP_UnitTestCase {
 		$client = new HonestHostingClient();
 		$client->get_site();
 
-		$this->assertEquals( 'stored-key-99', $captured_headers['X-HH-Site-Import-Key'] );
+		$this->assertEquals( 'stored-key-99', $captured_headers['X-API-Site-Import-Token'] );
 	}
 }

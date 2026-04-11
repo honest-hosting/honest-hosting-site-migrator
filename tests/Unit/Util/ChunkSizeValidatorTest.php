@@ -24,35 +24,35 @@ class ChunkSizeValidatorTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Parse valid "2MB" input.
+	 * Parse valid "5MB" input (min boundary).
 	 */
-	public function test_parse_2mb(): void {
-		$result = ChunkSizeValidator::parse( '2MB' );
-		$this->assertEquals( 2 * 1024 * 1024, $result );
+	public function test_parse_5mb(): void {
+		$result = ChunkSizeValidator::parse( '5MB' );
+		$this->assertEquals( 5 * 1024 * 1024, $result );
 	}
 
 	/**
-	 * Parse valid "50Mb" input.
+	 * Parse valid "10Mb" input.
 	 */
-	public function test_parse_50mb_mixed_case(): void {
-		$result = ChunkSizeValidator::parse( '50Mb' );
-		$this->assertEquals( 50 * 1024 * 1024, $result );
+	public function test_parse_10mb_mixed_case(): void {
+		$result = ChunkSizeValidator::parse( '10Mb' );
+		$this->assertEquals( 10 * 1024 * 1024, $result );
 	}
 
 	/**
-	 * Parse valid "100mb" input.
+	 * Parse valid "15mb" input.
 	 */
-	public function test_parse_100mb_lowercase(): void {
-		$result = ChunkSizeValidator::parse( '100mb' );
-		$this->assertEquals( 100 * 1024 * 1024, $result );
+	public function test_parse_15mb_lowercase(): void {
+		$result = ChunkSizeValidator::parse( '15mb' );
+		$this->assertEquals( 15 * 1024 * 1024, $result );
 	}
 
 	/**
-	 * Parse valid "200MB" (max boundary).
+	 * Parse valid "20MB" (max boundary).
 	 */
-	public function test_parse_200mb_max_boundary(): void {
-		$result = ChunkSizeValidator::parse( '200MB' );
-		$this->assertEquals( 200 * 1024 * 1024, $result );
+	public function test_parse_20mb_max_boundary(): void {
+		$result = ChunkSizeValidator::parse( '20MB' );
+		$this->assertEquals( 20 * 1024 * 1024, $result );
 	}
 
 	/**
@@ -72,19 +72,19 @@ class ChunkSizeValidatorTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * Reject input below minimum (1MB).
+	 * Reject input below minimum (4MB).
 	 */
 	public function test_parse_rejects_below_minimum(): void {
-		$result = ChunkSizeValidator::parse( '1MB' );
+		$result = ChunkSizeValidator::parse( '4MB' );
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertEquals( 'hh_migrator_chunk_size_too_small', $result->get_error_code() );
 	}
 
 	/**
-	 * Reject input above maximum (201MB).
+	 * Reject input above maximum (21MB).
 	 */
 	public function test_parse_rejects_above_maximum(): void {
-		$result = ChunkSizeValidator::parse( '201MB' );
+		$result = ChunkSizeValidator::parse( '21MB' );
 		$this->assertInstanceOf( \WP_Error::class, $result );
 		$this->assertEquals( 'hh_migrator_chunk_size_too_large', $result->get_error_code() );
 	}
@@ -126,9 +126,9 @@ class ChunkSizeValidatorTest extends WP_UnitTestCase {
 	 * Format converts bytes to human-readable.
 	 */
 	public function test_format(): void {
-		$this->assertEquals( '2 MB', ChunkSizeValidator::format( 2 * 1024 * 1024 ) );
-		$this->assertEquals( '50 MB', ChunkSizeValidator::format( 50 * 1024 * 1024 ) );
-		$this->assertEquals( '200 MB', ChunkSizeValidator::format( 200 * 1024 * 1024 ) );
+		$this->assertEquals( '5 MB', ChunkSizeValidator::format( 5 * 1024 * 1024 ) );
+		$this->assertEquals( '10 MB', ChunkSizeValidator::format( 10 * 1024 * 1024 ) );
+		$this->assertEquals( '20 MB', ChunkSizeValidator::format( 20 * 1024 * 1024 ) );
 	}
 
 	/**
@@ -158,8 +158,8 @@ class ChunkSizeValidatorTest extends WP_UnitTestCase {
 	 * Constants are correct.
 	 */
 	public function test_constants(): void {
-		$this->assertEquals( 2 * 1024 * 1024, ChunkSizeValidator::MIN_BYTES );
-		$this->assertEquals( 200 * 1024 * 1024, ChunkSizeValidator::MAX_BYTES );
-		$this->assertEquals( 2 * 1024 * 1024, ChunkSizeValidator::DEFAULT_BYTES );
+		$this->assertEquals( 5 * 1024 * 1024, ChunkSizeValidator::MIN_BYTES );
+		$this->assertEquals( 20 * 1024 * 1024, ChunkSizeValidator::MAX_BYTES );
+		$this->assertEquals( 10 * 1024 * 1024, ChunkSizeValidator::DEFAULT_BYTES );
 	}
 }

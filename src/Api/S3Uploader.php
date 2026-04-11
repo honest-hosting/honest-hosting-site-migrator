@@ -95,8 +95,7 @@ class S3Uploader {
 			$url_response['url'],
 			$url_response['s3_key'],
 			$data,
-			$content_type,
-			$compressed
+			$content_type
 		);
 	}
 
@@ -107,10 +106,9 @@ class S3Uploader {
 	 * @param string $s3_key        S3 object key.
 	 * @param string $data          Raw data to upload.
 	 * @param string $content_type  MIME type.
-	 * @param bool   $compressed    Whether content is gzip-compressed.
 	 * @return array{s3_key: string, etag: string}|WP_Error
 	 */
-	private function put_with_retry( string $presigned_url, string $s3_key, string $data, string $content_type, bool $compressed ) {
+	private function put_with_retry( string $presigned_url, string $s3_key, string $data, string $content_type ) {
 		$last_error = null;
 
 		for ( $attempt = 0; $attempt <= self::MAX_RETRIES; $attempt++ ) {
@@ -124,9 +122,10 @@ class S3Uploader {
 				'Content-Length' => (string) strlen( $data ),
 			);
 
-			if ( $compressed ) {
-				$headers['Content-Encoding'] = 'gzip';
-			}
+			// Do NOT set Content-Encoding: gzip — the compression is an internal
+			// chunk format detail tracked in metadata, not HTTP transport encoding.
+			// Setting it causes S3/Minio to transparently decompress on download,
+			// which breaks the restore binary's decompression.
 
 			$response = wp_remote_request(
 				$presigned_url,

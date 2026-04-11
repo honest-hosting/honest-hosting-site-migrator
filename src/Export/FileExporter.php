@@ -12,6 +12,7 @@ defined( 'ABSPATH' ) || exit;
 use HonestHosting\SiteMigrator\Api\S3Uploader;
 use HonestHosting\SiteMigrator\Log\MigrationLogger;
 use HonestHosting\SiteMigrator\Migration\SessionManager;
+use HonestHosting\SiteMigrator\Util\FormatHelper;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use WP_Error;
@@ -82,12 +83,16 @@ class FileExporter {
 	/**
 	 * Scan wp-content and build a file manifest.
 	 *
-	 * @return array<string, array{path: string, size: int, hash: string}> Keyed by relative path.
+	 * Uses stat() only (size + mtime) — no file content is read during the scan.
+	 *
+	 * @param string $import_id Import session ULID (for progress logging).
+	 * @return array<string, array{path: string, size: int, mtime: int}> Keyed by relative path.
 	 */
-	public function scan(): array {
+	public function scan( string $import_id = '' ): array {
 		$wp_content = $this->wp_content_path ?? WP_CONTENT_DIR;
 		$manifest   = array();
 		$state_dir  = $this->get_state_dir();
+		$count      = 0;
 
 		$iterator = new RecursiveIteratorIterator(
 			new RecursiveDirectoryIterator( $wp_content, RecursiveDirectoryIterator::SKIP_DOTS ),
@@ -110,16 +115,19 @@ class FileExporter {
 			}
 
 			$relative_path = (string) str_replace( $wp_content . '/', '', $real_path );
-			$hash          = md5_file( $real_path );
-			if ( false === $hash ) {
-				continue;
-			}
 
 			$manifest[ $relative_path ] = array(
-				'path' => $relative_path,
-				'size' => (int) $file->getSize(),
-				'hash' => $hash,
+				'path'  => $relative_path,
+				'size'  => (int) $file->getSize(),
+				'mtime' => (int) $file->getMTime(),
 			);
+
+			// Reset execution timer and log progress periodically.
+			++$count;
+			if ( 0 === $count % 2500 ) {
+				set_time_limit( max( 60, (int) ini_get( 'max_execution_time' ) ) );
+				$this->logger->log( $import_id, 'file_scan.progress', sprintf( 'Scanned %d files...', $count ) );
+			}
 		}
 
 		return $manifest;
@@ -128,15 +136,18 @@ class FileExporter {
 	/**
 	 * Determine which files have changed since the previous session.
 	 *
-	 * @param array<string, array{path: string, size: int, hash: string}> $current_manifest  Current scan.
-	 * @param array<string, string>                                       $previous_hashes   Previous manifest hashes (path => hash).
-	 * @return array<string, array{path: string, size: int, hash: string}> Changed files only.
+	 * Uses rsync-style size+mtime comparison — no file content is read.
+	 *
+	 * @param array<string, array{path: string, size: int, mtime: int}> $current_manifest Current scan.
+	 * @param array<string, array{size: int, mtime: int}>               $previous_meta    Previous session file metadata.
+	 * @return array<string, array{path: string, size: int, mtime: int}> Changed or new files only.
 	 */
-	public function diff( array $current_manifest, array $previous_hashes ): array {
+	public function diff( array $current_manifest, array $previous_meta ): array {
 		$changed = array();
 
 		foreach ( $current_manifest as $path => $entry ) {
-			if ( ! isset( $previous_hashes[ $path ] ) || $previous_hashes[ $path ] !== $entry['hash'] ) {
+			$prev = $previous_meta[ $path ] ?? null;
+			if ( null === $prev || $prev['size'] !== $entry['size'] || $prev['mtime'] !== $entry['mtime'] ) {
 				$changed[ $path ] = $entry;
 			}
 		}
@@ -150,10 +161,10 @@ class FileExporter {
 	 * Small files are bundled together into chunks up to chunk_size.
 	 * Large files that exceed chunk_size are split across multiple chunks.
 	 *
-	 * @param string                                                      $import_id       Import session ULID.
-	 * @param array<string, array{path: string, size: int, hash: string}> $manifest        Files to export.
-	 * @param array<string>                                               $skip_paths      Paths already completed.
-	 * @param int                                                         $chunk_size      Chunk size in bytes.
+	 * @param string                                                    $import_id       Import session ULID.
+	 * @param array<string, array{path: string, size: int, mtime: int}> $manifest        Files to export.
+	 * @param array<string>                                             $skip_paths      Paths already completed.
+	 * @param int                                                       $chunk_size      Chunk size in bytes.
 	 * @return true|WP_Error
 	 */
 	public function export( string $import_id, array $manifest, array $skip_paths, int $chunk_size ) {
@@ -169,7 +180,7 @@ class FileExporter {
 		$this->logger->log(
 			$import_id,
 			'file_export.started',
-			sprintf( 'Starting file export: %d files, %s total, ~%d chunks (%s each).', $total, $this->format_bytes( $total_bytes ), $estimated_chunks, $this->format_bytes( $chunk_size ) )
+			sprintf( 'Starting file export: %d files, %s total, ~%d chunks (%s each).', $total, FormatHelper::format_bytes( $total_bytes ), $estimated_chunks, FormatHelper::format_bytes( $chunk_size ) )
 		);
 
 		// Update session with file totals.
@@ -178,12 +189,11 @@ class FileExporter {
 			array(
 				'status'        => 'exporting_files',
 				'file_progress' => array(
-					'total_files'          => $total,
-					'completed_files'      => count( $skip_paths ),
-					'current_file'         => null,
-					'completed_file_paths' => $skip_paths,
-					'total_bytes'          => $total_bytes,
-					'uploaded_bytes'       => 0,
+					'total_files'     => $total,
+					'completed_files' => count( $skip_paths ),
+					'current_file'    => null,
+					'total_bytes'     => $total_bytes,
+					'uploaded_bytes'  => 0,
 				),
 			)
 		);
@@ -215,6 +225,11 @@ class FileExporter {
 
 			// Batch session updates every 50 files to reduce I/O.
 			if ( $ctx['files_since_save'] >= 50 ) {
+				// Check for cancellation before saving.
+				if ( $this->session_manager->is_cancelled( $import_id ) ) {
+					return new WP_Error( 'hh_migrator_cancelled', __( 'Migration was cancelled.', 'honest-hosting-site-migrator' ) );
+				}
+
 				$this->save_progress( $import_id, $ctx['uploaded_bytes'], $ctx['hashes'], $ctx['chunk_refs'] );
 				$ctx['files_since_save'] = 0;
 				$ctx['chunk_refs']       = array();
@@ -235,7 +250,7 @@ class FileExporter {
 			$this->save_progress( $import_id, $ctx['uploaded_bytes'], $ctx['hashes'], $ctx['chunk_refs'] );
 		}
 
-		$this->logger->log( $import_id, 'file_export.completed', sprintf( 'File export completed: %d files, %s uploaded.', $ctx['completed'], $this->format_bytes( $ctx['uploaded_bytes'] ) ) );
+		$this->logger->log( $import_id, 'file_export.completed', sprintf( 'File export completed: %d files, %s uploaded.', $ctx['completed'], FormatHelper::format_bytes( $ctx['uploaded_bytes'] ) ) );
 
 		return true;
 	}
@@ -243,10 +258,10 @@ class FileExporter {
 	/**
 	 * Export a single file into the chunk buffer.
 	 *
-	 * @param string                                       $import_id     Import session ULID.
-	 * @param string                                       $relative_path Relative file path.
-	 * @param array{path: string, size: int, hash: string} $entry     Manifest entry.
-	 * @param array<string, mixed>                         &$ctx          Export context (buffer, indices, counters).
+	 * @param string                                     $import_id     Import session ULID.
+	 * @param string                                     $relative_path Relative file path.
+	 * @param array{path: string, size: int, mtime: int} $entry     Manifest entry.
+	 * @param array<string, mixed>                       &$ctx          Export context (buffer, indices, counters).
 	 * @return true|WP_Error
 	 */
 	private function export_file( string $import_id, string $relative_path, array $entry, array &$ctx ) {
@@ -302,7 +317,10 @@ class FileExporter {
 		++$ctx['completed'];
 		$ctx['uploaded_bytes']          += $file_size;
 		$ctx['completed_paths'][]        = $relative_path;
-		$ctx['hashes'][ $relative_path ] = $entry['hash'];
+		$ctx['hashes'][ $relative_path ] = array(
+			'size'  => $entry['size'],
+			'mtime' => $entry['mtime'],
+		);
 		++$ctx['files_since_save'];
 
 		return true;
@@ -326,7 +344,7 @@ class FileExporter {
 			return $chunk_index;
 		}
 
-		$this->logger->log( $import_id, 'file_export.large_file', sprintf( 'Streaming large file: %s (%s)', $relative, $this->format_bytes( $file_size ) ) );
+		$this->logger->log( $import_id, 'file_export.large_file', sprintf( 'Streaming large file: %s (%s)', $relative, FormatHelper::format_bytes( $file_size ) ) );
 
 		$source_offset = 0;
 		while ( ! feof( $handle ) ) {
@@ -378,8 +396,8 @@ class FileExporter {
 			sprintf(
 				'Uploading chunk-%d to S3 (%s raw, %s encoded, %d files).',
 				$chunk_index,
-				$this->format_bytes( $data_size ),
-				$this->format_bytes( strlen( $encoded['data'] ) ),
+				FormatHelper::format_bytes( $data_size ),
+				FormatHelper::format_bytes( strlen( $encoded['data'] ) ),
 				count( $entries )
 			)
 		);
@@ -411,18 +429,20 @@ class FileExporter {
 	/**
 	 * Batch-save progress to storage.
 	 *
-	 * @param string                           $import_id      Import session ULID.
-	 * @param int                              $uploaded_bytes Total uploaded bytes.
-	 * @param array<string, string>            $hashes         New manifest hashes to persist.
-	 * @param array<int, array<string, mixed>> $new_refs       New chunk references.
+	 * @param string                                      $import_id      Import session ULID.
+	 * @param int                                         $uploaded_bytes Total uploaded bytes.
+	 * @param array<string, array{size: int, mtime: int}> $file_meta New file metadata to persist.
+	 * @param array<int, array<string, mixed>>            $new_refs       New chunk references.
 	 * @return void
 	 */
-	private function save_progress( string $import_id, int $uploaded_bytes, array $hashes, array $new_refs ): void {
+	private function save_progress( string $import_id, int $uploaded_bytes, array $file_meta, array $new_refs ): void {
 		$store = $this->session_manager->storage( $import_id );
 
-		// Persist file hashes (marks files completed in storage).
-		if ( ! empty( $hashes ) ) {
-			$store->mark_files_completed( $hashes );
+		$this->logger->log( $import_id, 'file_export.save_progress', sprintf( 'Saving progress: %d files, %d chunk refs, %s read', count( $file_meta ), count( $new_refs ), FormatHelper::format_bytes( $uploaded_bytes ) ) );
+
+		// Persist file metadata (marks files completed in storage).
+		if ( ! empty( $file_meta ) ) {
+			$store->mark_files_completed( $file_meta );
 		}
 
 		// Persist chunk references.
@@ -461,21 +481,5 @@ class FileExporter {
 		$upload_dir = wp_upload_dir();
 		$state_dir  = $upload_dir['basedir'] . '/hh-migrator';
 		return is_dir( $state_dir ) ? $state_dir : null;
-	}
-
-	/**
-	 * Format bytes into a human-readable string.
-	 *
-	 * @param int $bytes Size in bytes.
-	 * @return string
-	 */
-	private function format_bytes( int $bytes ): string {
-		if ( $bytes < 1024 ) {
-			return $bytes . 'B';
-		}
-		if ( $bytes < 1048576 ) {
-			return round( $bytes / 1024, 1 ) . 'KB';
-		}
-		return round( $bytes / 1048576, 1 ) . 'MB';
 	}
 }

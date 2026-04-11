@@ -20,7 +20,7 @@ defined( 'ABSPATH' ) || exit;
 			<td>
 				<select id="hh-migrator-mode">
 					<option value="full"><?php esc_html_e( 'Full Import', 'honest-hosting-site-migrator' ); ?></option>
-					<option value="incremental_all"><?php esc_html_e( 'Incremental — All', 'honest-hosting-site-migrator' ); ?></option>
+					<option value="incremental_all"><?php esc_html_e( 'Incremental — Files + Database', 'honest-hosting-site-migrator' ); ?></option>
 					<option value="incremental_files"><?php esc_html_e( 'Incremental — Files Only', 'honest-hosting-site-migrator' ); ?></option>
 					<option value="incremental_db"><?php esc_html_e( 'Incremental — Database Only', 'honest-hosting-site-migrator' ); ?></option>
 				</select>
@@ -38,6 +38,9 @@ defined( 'ABSPATH' ) || exit;
 	</table>
 
 	<p class="submit">
+		<button type="button" id="hh-migrator-run-preflight" class="button">
+			<?php esc_html_e( 'Run Preflight Checks', 'honest-hosting-site-migrator' ); ?>
+		</button>
 		<button type="button" id="hh-migrator-start-migration" class="button button-primary">
 			<?php esc_html_e( 'Start Migration', 'honest-hosting-site-migrator' ); ?>
 		</button>
@@ -78,8 +81,11 @@ defined( 'ABSPATH' ) || exit;
 				</thead>
 				<tbody id="hh-migrator-log-body">
 					<?php
-					$hh_migrator_logger  = new \HonestHosting\SiteMigrator\Log\MigrationLogger();
-					$hh_migrator_entries = $hh_migrator_logger->get_recent( 100 );
+					$hh_migrator_logger      = new \HonestHosting\SiteMigrator\Log\MigrationLogger();
+					$hh_migrator_total       = $hh_migrator_logger->get_count();
+					$hh_migrator_per_page    = 10;
+					$hh_migrator_total_pages = max( 1, (int) ceil( $hh_migrator_total / $hh_migrator_per_page ) );
+					$hh_migrator_entries     = $hh_migrator_logger->get_page( $hh_migrator_per_page, 0 );
 
 					if ( empty( $hh_migrator_entries ) ) :
 						?>
@@ -102,5 +108,30 @@ defined( 'ABSPATH' ) || exit;
 					?>
 				</tbody>
 			</table>
+
+			<div id="hh-migrator-log-pagination" class="tablenav bottom" <?php echo $hh_migrator_total_pages <= 1 ? 'style="display:none;"' : ''; ?>>
+				<div class="tablenav-pages">
+					<span class="displaying-num" id="hh-migrator-log-total">
+						<?php
+						echo esc_html(
+							sprintf(
+								/* translators: %d: total number of log entries */
+								_n( '%d item', '%d items', $hh_migrator_total, 'honest-hosting-site-migrator' ),
+								$hh_migrator_total
+							)
+						);
+						?>
+					</span>
+					<span class="pagination-links">
+						<button type="button" class="button prev-page" id="hh-migrator-log-prev" disabled>&lsaquo;</button>
+						<span class="paging-input">
+							<span id="hh-migrator-log-current-page">1</span>
+							<?php esc_html_e( 'of', 'honest-hosting-site-migrator' ); ?>
+							<span id="hh-migrator-log-total-pages"><?php echo esc_html( (string) $hh_migrator_total_pages ); ?></span>
+						</span>
+						<button type="button" class="button next-page" id="hh-migrator-log-next" <?php echo $hh_migrator_total_pages <= 1 ? 'disabled' : ''; ?>>&rsaquo;</button>
+					</span>
+				</div>
+			</div>
 	</div>
 </div>

@@ -22,7 +22,7 @@ class MysqlStorage implements SessionStorageInterface {
 	 *
 	 * @var int
 	 */
-	private const LOCK_TTL = 600;
+	private const LOCK_TTL = 60;
 
 	/**
 	 * Import session ULID.
@@ -66,9 +66,10 @@ class MysqlStorage implements SessionStorageInterface {
 			"CREATE TABLE IF NOT EXISTS {$wpdb->prefix}hh_migrator_file_progress (
 			import_id VARCHAR(36) NOT NULL,
 			path VARCHAR(500) NOT NULL,
-			hash VARCHAR(64) NOT NULL,
+			size BIGINT NOT NULL DEFAULT 0,
+			mtime BIGINT NOT NULL DEFAULT 0,
 			PRIMARY KEY (import_id, path(191))
-		) {$charset};" 
+		) {$charset};"
 		);
 
 		dbDelta(
@@ -164,33 +165,40 @@ class MysqlStorage implements SessionStorageInterface {
 	 * Mark a file as completed.
 	 *
 	 * @param string $path Relative file path.
-	 * @param string $hash File content hash.
 	 * @return void
 	 */
-	public function mark_file_completed( string $path, string $hash ): void {
-		global $wpdb;
-
-		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-		$wpdb->replace(
-			$wpdb->prefix . 'hh_migrator_file_progress',
+	public function mark_file_completed( string $path ): void {
+		$this->mark_files_completed(
 			array(
-				'import_id' => $this->import_id,
-				'path'      => $path,
-				'hash'      => $hash,
-			),
-			array( '%s', '%s', '%s' )
+				$path => array(
+					'size'  => 0,
+					'mtime' => 0,
+				),
+			) 
 		);
 	}
 
 	/**
 	 * Mark multiple files as completed in a batch.
 	 *
-	 * @param array<string, string> $files Map of path => hash.
+	 * @param array<string, array{size: int, mtime: int}> $files Map of path => metadata.
 	 * @return void
 	 */
 	public function mark_files_completed( array $files ): void {
-		foreach ( $files as $path => $hash ) {
-			$this->mark_file_completed( $path, $hash );
+		global $wpdb;
+
+		foreach ( $files as $path => $meta ) {
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			$wpdb->replace(
+				$wpdb->prefix . 'hh_migrator_file_progress',
+				array(
+					'import_id' => $this->import_id,
+					'path'      => $path,
+					'size'      => $meta['size'],
+					'mtime'     => $meta['mtime'],
+				),
+				array( '%s', '%s', '%d', '%d' )
+			);
 		}
 	}
 
@@ -252,29 +260,32 @@ class MysqlStorage implements SessionStorageInterface {
 	}
 
 	/**
-	 * Get all file hashes (path => hash).
+	 * Get all file metadata (path => {size, mtime}).
 	 *
-	 * @return array<string, string>
+	 * @return array<string, array{size: int, mtime: int}>
 	 */
-	public function get_file_hashes(): array {
+	public function get_file_metadata(): array {
 		global $wpdb;
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
 		$results = $wpdb->get_results(
 			$wpdb->prepare(
-				"SELECT path, hash FROM {$wpdb->prefix}hh_migrator_file_progress WHERE import_id = %s", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				"SELECT path, size, mtime FROM {$wpdb->prefix}hh_migrator_file_progress WHERE import_id = %s", // phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
 				$this->import_id
 			),
 			ARRAY_A
 		);
 
-		$hashes = array();
+		$meta = array();
 		if ( is_array( $results ) ) {
 			foreach ( $results as $row ) {
-				$hashes[ $row['path'] ] = $row['hash'];
+				$meta[ $row['path'] ] = array(
+					'size'  => (int) $row['size'],
+					'mtime' => (int) $row['mtime'],
+				);
 			}
 		}
-		return $hashes;
+		return $meta;
 	}
 
 	/**

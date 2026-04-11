@@ -63,15 +63,14 @@ interface SessionStorageInterface {
 	 * Mark a file as completed.
 	 *
 	 * @param string $path Relative file path.
-	 * @param string $hash File content hash.
 	 * @return void
 	 */
-	public function mark_file_completed( string $path, string $hash ): void;
+	public function mark_file_completed( string $path ): void;
 
 	/**
 	 * Mark multiple files as completed in a batch.
 	 *
-	 * @param array<string, string> $files Map of path => hash.
+	 * @param array<string, array{size: int, mtime: int}> $files Map of path => metadata.
 	 * @return void
 	 */
 	public function mark_files_completed( array $files ): void;
@@ -99,11 +98,11 @@ interface SessionStorageInterface {
 	public function get_completed_file_paths(): array;
 
 	/**
-	 * Get all file hashes (path => hash).
+	 * Get all file metadata (path => {size, mtime}).
 	 *
-	 * @return array<string, string>
+	 * @return array<string, array{size: int, mtime: int}>
 	 */
-	public function get_file_hashes(): array;
+	public function get_file_metadata(): array;
 
 	// --- Chunk references ---
 

@@ -67,19 +67,35 @@ class FileExportIntegrationTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'plugins/myplugin/main.php', $manifest );
 		$this->assertCount( 2, $manifest );
 
-		// Each entry has path, size, hash.
+		// Each entry has path, size, mtime.
 		$entry = $manifest['themes/mytheme/style.css'];
 		$this->assertEquals( 'themes/mytheme/style.css', $entry['path'] );
 		$this->assertGreaterThan( 0, $entry['size'] );
-		$this->assertNotEmpty( $entry['hash'] );
+		$this->assertGreaterThan( 0, $entry['mtime'] );
 	}
 
 	/**
 	 * Diff identifies changed and new files.
 	 */
 	public function test_diff_detects_changes(): void {
-		file_put_contents( $this->temp_dir . '/themes/mytheme/style.css', 'v2' );
+		// Write initial files and capture their metadata.
+		file_put_contents( $this->temp_dir . '/themes/mytheme/style.css', 'v1' );
 		file_put_contents( $this->temp_dir . '/plugins/myplugin/main.php', 'v1' );
+
+		$previous_meta = array(
+			'themes/mytheme/style.css'  => array(
+				'size'  => (int) filesize( $this->temp_dir . '/themes/mytheme/style.css' ),
+				'mtime' => (int) filemtime( $this->temp_dir . '/themes/mytheme/style.css' ),
+			),
+			'plugins/myplugin/main.php' => array(
+				'size'  => (int) filesize( $this->temp_dir . '/plugins/myplugin/main.php' ),
+				'mtime' => (int) filemtime( $this->temp_dir . '/plugins/myplugin/main.php' ),
+			),
+		);
+
+		// Modify one file and add a new one (sleep 1s to ensure mtime changes).
+		sleep( 1 );
+		file_put_contents( $this->temp_dir . '/themes/mytheme/style.css', 'v2' );
 		file_put_contents( $this->temp_dir . '/plugins/newplugin.php', 'new' );
 
 		add_filter( 'pre_http_request', fn() => array( 'response' => array( 'code' => 200 ), 'body' => '{}' ), 10, 3 );
@@ -90,17 +106,11 @@ class FileExportIntegrationTest extends WP_UnitTestCase {
 		$exporter = new FileExporter( $uploader, $encoder, $this->session_manager, $this->temp_dir );
 
 		$current = $exporter->scan();
+		$changed = $exporter->diff( $current, $previous_meta );
 
-		$previous_hashes = array(
-			'themes/mytheme/style.css'  => md5( 'v1' ), // Changed (v1 -> v2).
-			'plugins/myplugin/main.php' => md5( 'v1' ), // Unchanged.
-		);
-
-		$changed = $exporter->diff( $current, $previous_hashes );
-
-		$this->assertArrayHasKey( 'themes/mytheme/style.css', $changed );     // Changed.
+		$this->assertArrayHasKey( 'themes/mytheme/style.css', $changed );     // Changed (size+mtime differ).
 		$this->assertArrayNotHasKey( 'plugins/myplugin/main.php', $changed );  // Unchanged.
-		$this->assertArrayHasKey( 'plugins/newplugin.php', $changed );         // New.
+		$this->assertArrayHasKey( 'plugins/newplugin.php', $changed );         // New file.
 	}
 
 	private function rmdir_recursive( string $dir ): void {

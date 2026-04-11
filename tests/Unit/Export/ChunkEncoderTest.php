@@ -28,10 +28,11 @@ class ChunkEncoderTest extends WP_UnitTestCase {
 		$this->assertLessThan( strlen( $data ), strlen( $result['data'] ) );
 		$this->assertEquals( '01XYZ', $result['metadata']['import_id'] );
 		$this->assertEquals( 0, $result['metadata']['chunk_index'] );
-		$this->assertEquals( 'test/file.txt', $result['metadata']['source_path'] );
 		$this->assertEquals( 'file', $result['metadata']['type'] );
 		$this->assertEquals( strlen( $data ), $result['metadata']['original_size'] );
 		$this->assertEquals( md5( $data ), $result['metadata']['hash'] );
+		$this->assertEquals( 'test/file.txt', $result['metadata']['entries'][0]['path'] );
+		$this->assertEquals( 0, $result['metadata']['entries'][0]['source_offset'] );
 	}
 
 	/**
@@ -47,7 +48,8 @@ class ChunkEncoderTest extends WP_UnitTestCase {
 		$this->assertEquals( $data, $result['data'] );
 		$this->assertEquals( 5, $result['metadata']['chunk_index'] );
 		$this->assertEquals( 'database', $result['metadata']['type'] );
-		$this->assertEquals( 1024, $result['metadata']['offset'] );
+		$this->assertEquals( 1024, $result['metadata']['entries'][0]['source_offset'] );
+		$this->assertEquals( 'db/wp_posts', $result['metadata']['entries'][0]['path'] );
 	}
 
 	/**

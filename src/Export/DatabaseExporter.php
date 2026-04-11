@@ -12,6 +12,7 @@ defined( 'ABSPATH' ) || exit;
 use HonestHosting\SiteMigrator\Api\S3Uploader;
 use HonestHosting\SiteMigrator\Log\MigrationLogger;
 use HonestHosting\SiteMigrator\Migration\SessionManager;
+use HonestHosting\SiteMigrator\Util\FormatHelper;
 use WP_Error;
 
 /**
@@ -188,6 +189,11 @@ class DatabaseExporter {
 				continue;
 			}
 
+			// Check for cancellation before each table.
+			if ( $this->session_manager->is_cancelled( $import_id ) ) {
+				return new WP_Error( 'hh_migrator_cancelled', __( 'Migration was cancelled.', 'honest-hosting-site-migrator' ) );
+			}
+
 			$store->set( 'current_table', $name );
 
 			// Try transactional consistency for InnoDB.
@@ -260,6 +266,9 @@ class DatabaseExporter {
 			$buffer .= ( $create['Create Table'] ?? '' ) . ";\n\n";
 		}
 
+		// Detect binary/blob columns so we can hex-encode their values.
+		$binary_columns = $this->get_binary_columns( $table_name );
+
 		// Stream rows in batches.
 		$offset = 0;
 
@@ -279,15 +288,21 @@ class DatabaseExporter {
 			}
 
 			foreach ( $rows as $row ) {
-				$values = array_map(
-					function ( $value ) use ( $wpdb ) {
-						if ( null === $value ) {
-							return 'NULL';
-						}
-						return "'" . $wpdb->_real_escape( $value ) . "'";
-					},
-					array_values( $row )
-				);
+				$values = array();
+				foreach ( $row as $col => $value ) {
+					if ( null === $value ) {
+						$values[] = 'NULL';
+					} elseif ( isset( $binary_columns[ $col ] ) ) {
+						// Use hex encoding for binary/blob columns (like mysqldump does).
+						$hex      = bin2hex( $value );
+						$values[] = '' === $hex ? "''" : '0x' . $hex;
+					} else {
+						// Use mysqli directly to avoid WordPress placeholder escaping
+						// that mangles literal % characters in data (WP 6.2+).
+						// phpcs:ignore WordPress.DB.RestrictedFunctions.mysql_mysqli_real_escape_string -- $wpdb->_real_escape() adds placeholder escaping that corrupts exported SQL.
+						$values[] = "'" . mysqli_real_escape_string( $wpdb->dbh, $value ) . "'";
+					}
+				}
 
 				$columns = array_map( fn( $col ) => "`{$col}`", array_keys( $row ) );
 
@@ -333,7 +348,7 @@ class DatabaseExporter {
 		$this->logger->log(
 			$import_id,
 			'db_export.chunk_upload',
-			sprintf( 'Uploading db chunk-%d for %s (%s raw, %s encoded).', $chunk_index, $table_name, $this->format_bytes( $raw_size ), $this->format_bytes( strlen( $encoded['data'] ) ) )
+			sprintf( 'Uploading db chunk-%d for %s (%s raw, %s encoded).', $chunk_index, $table_name, FormatHelper::format_bytes( $raw_size ), FormatHelper::format_bytes( strlen( $encoded['data'] ) ) )
 		);
 
 		$result = $this->uploader->upload_chunk(
@@ -370,18 +385,42 @@ class DatabaseExporter {
 	}
 
 	/**
+	 * Get binary/blob column names for a table.
+	 *
+	 * Returns a map of column_name => true for columns that should be hex-encoded
+	 * during export (BINARY, VARBINARY, TINYBLOB, BLOB, MEDIUMBLOB, LONGBLOB).
+	 *
+	 * @param string $table_name Table name.
+	 * @return array<string, bool>
+	 */
+	private function get_binary_columns( string $table_name ): array {
+		global $wpdb;
+
+		$binary_types = array( 'binary', 'varbinary', 'tinyblob', 'blob', 'mediumblob', 'longblob' );
+		$binary_cols  = array();
+
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching, WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+		$columns = $wpdb->get_results( "SHOW COLUMNS FROM `{$table_name}`", ARRAY_A );
+
+		if ( is_array( $columns ) ) {
+			foreach ( $columns as $col ) {
+				$type = strtolower( $col['Type'] ?? '' );
+				foreach ( $binary_types as $bt ) {
+					if ( str_starts_with( $type, $bt ) ) {
+						$binary_cols[ $col['Field'] ] = true;
+						break;
+					}
+				}
+			}
+		}
+
+		return $binary_cols;
+	}
+
+	/**
 	 * Format bytes into a human-readable string.
 	 *
 	 * @param int $bytes Size in bytes.
 	 * @return string
 	 */
-	private function format_bytes( int $bytes ): string {
-		if ( $bytes < 1024 ) {
-			return $bytes . 'B';
-		}
-		if ( $bytes < 1048576 ) {
-			return round( $bytes / 1024, 1 ) . 'KB';
-		}
-		return round( $bytes / 1048576, 1 ) . 'MB';
-	}
 }

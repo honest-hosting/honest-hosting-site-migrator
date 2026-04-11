@@ -24,7 +24,7 @@ class SqliteStorage implements SessionStorageInterface {
 	 *
 	 * @var int
 	 */
-	private const LOCK_TTL = 600;
+	private const LOCK_TTL = 60;
 
 	/**
 	 * SQLite database instance.
@@ -57,6 +57,9 @@ class SqliteStorage implements SessionStorageInterface {
 		$this->db->busyTimeout( 5000 );
 		$this->db->exec( 'PRAGMA journal_mode = WAL' );
 		$this->db->exec( 'PRAGMA synchronous = NORMAL' );
+
+		// Always ensure tables exist (idempotent).
+		$this->init( $import_id );
 	}
 
 	/**
@@ -79,9 +82,10 @@ class SqliteStorage implements SessionStorageInterface {
 			'
 			CREATE TABLE IF NOT EXISTS file_progress (
 				path TEXT PRIMARY KEY,
-				hash TEXT NOT NULL
+				size INTEGER NOT NULL DEFAULT 0,
+				mtime INTEGER NOT NULL DEFAULT 0
 			)
-		' 
+		'
 		);
 
 		$this->db->exec(
@@ -202,26 +206,33 @@ class SqliteStorage implements SessionStorageInterface {
 	 * Mark a file as completed.
 	 *
 	 * @param string $path Relative file path.
-	 * @param string $hash File content hash.
 	 * @return void
 	 */
-	public function mark_file_completed( string $path, string $hash ): void {
-		$this->mark_files_completed( array( $path => $hash ) );
+	public function mark_file_completed( string $path ): void {
+		$this->mark_files_completed(
+			array(
+				$path => array(
+					'size'  => 0,
+					'mtime' => 0,
+				),
+			) 
+		);
 	}
 
 	/**
 	 * Mark multiple files as completed in a batch.
 	 *
-	 * @param array<string, string> $files Map of path => hash.
+	 * @param array<string, array{size: int, mtime: int}> $files Map of path => metadata.
 	 * @return void
 	 */
 	public function mark_files_completed( array $files ): void {
 		$this->db->exec( 'BEGIN TRANSACTION' );
-		$stmt = $this->stmt( 'INSERT OR REPLACE INTO file_progress (path, hash) VALUES (:path, :hash)' );
+		$stmt = $this->stmt( 'INSERT OR REPLACE INTO file_progress (path, size, mtime) VALUES (:path, :size, :mtime)' );
 
-		foreach ( $files as $path => $hash ) {
+		foreach ( $files as $path => $meta ) {
 			$stmt->bindValue( ':path', $path, SQLITE3_TEXT );
-			$stmt->bindValue( ':hash', $hash, SQLITE3_TEXT );
+			$stmt->bindValue( ':size', $meta['size'], SQLITE3_INTEGER );
+			$stmt->bindValue( ':mtime', $meta['mtime'], SQLITE3_INTEGER );
 			$stmt->execute();
 			$stmt->reset();
 		}
@@ -267,17 +278,20 @@ class SqliteStorage implements SessionStorageInterface {
 	}
 
 	/**
-	 * Get all file hashes (path => hash).
+	 * Get all file metadata (path => {size, mtime}).
 	 *
-	 * @return array<string, string>
+	 * @return array<string, array{size: int, mtime: int}>
 	 */
-	public function get_file_hashes(): array {
-		$hashes = array();
-		$result = $this->query( 'SELECT path, hash FROM file_progress' );
+	public function get_file_metadata(): array {
+		$meta   = array();
+		$result = $this->query( 'SELECT path, size, mtime FROM file_progress' );
 		while ( $row = $result->fetchArray( SQLITE3_ASSOC ) ) {
-			$hashes[ $row['path'] ] = $row['hash'];
+			$meta[ $row['path'] ] = array(
+				'size'  => (int) $row['size'],
+				'mtime' => (int) $row['mtime'],
+			);
 		}
-		return $hashes;
+		return $meta;
 	}
 
 	/**
@@ -407,7 +421,7 @@ class SqliteStorage implements SessionStorageInterface {
 			array(
 				'lock_holder'  => gethostname() . ':' . getmypid() . ':' . time(),
 				'lock_expires' => time() + self::LOCK_TTL,
-			) 
+			)
 		);
 
 		return true;

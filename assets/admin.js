@@ -27,6 +27,20 @@
 		 */
 		currentImportStatus: 'none',
 
+		/**
+		 * Whether the current import's local worker has died.
+		 *
+		 * @type {boolean}
+		 */
+		currentImportStale: false,
+
+		/**
+		 * Current log page.
+		 *
+		 * @type {number}
+		 */
+		logPage: 1,
+
 		init: function () {
 			this.bindEvents();
 			this.fetchStatus();
@@ -49,6 +63,8 @@
 			$('#hh-migrator-clear-log').on('click', this.clearLog);
 			$('#hh-migrator-download-debug').on('click', this.downloadDebug);
 			$('#hh-migrator-dest-url-copy').on('click', this.copyDestUrl);
+			$('#hh-migrator-log-prev').on('click', function () { HHMigrator.changeLogPage(-1); });
+			$('#hh-migrator-log-next').on('click', function () { HHMigrator.changeLogPage(1); });
 		},
 
 		/**
@@ -153,8 +169,8 @@
 			}, function (data) {
 				HHMigrator.hideSpinner($btn);
 				HHMigrator.showNotice('success', data.message || 'Import key is valid.');
-				if (data.site && data.site.url) {
-					HHMigrator.showDestUrl(data.site.url);
+				if (data.site) {
+					HHMigrator.showDestSite(data.site);
 				}
 			}, function (data) {
 				HHMigrator.hideSpinner($btn);
@@ -175,12 +191,14 @@
 			HHMigrator.ajax('hh_migrator_save_config', {
 				api_base_url: $('#hh-migrator-api-base-url').val(),
 				import_key: $('#hh-migrator-import-key').val(),
-				chunk_size: $('#hh-migrator-chunk-size').val()
+				chunk_size: $('#hh-migrator-chunk-size').val(),
+				compression: $('#hh-migrator-compression').val()
 			}, function (data) {
 				HHMigrator.hideSpinner($btn);
-				var type = data.has_errors ? 'warning' : 'success';
-				HHMigrator.showNotice(type, data.message || 'Configuration saved.');
-				HHMigrator._fetchAndRenderLog(null);
+				HHMigrator.showNotice('success', data.message || 'Configuration saved.');
+				if (data.site) {
+					HHMigrator.showDestSite(data.site);
+				}
 			}, function (data) {
 				HHMigrator.hideSpinner($btn);
 				HHMigrator.showNotice('error', data.message || 'Failed to save configuration.');
@@ -355,6 +373,7 @@
 			e.preventDefault();
 			var $btn = $(this);
 			HHMigrator.showSpinner($btn);
+			HHMigrator.logPage = 1;
 
 			HHMigrator._fetchAndRenderLog(function () {
 				HHMigrator.hideSpinner($btn);
@@ -379,7 +398,7 @@
 		 * @param {Function|null} onComplete Callback when done (success or error).
 		 */
 		_fetchAndRenderLog: function (onComplete) {
-			HHMigrator.ajax('hh_migrator_refresh_log', {}, function (data) {
+			HHMigrator.ajax('hh_migrator_refresh_log', { page: HHMigrator.logPage }, function (data) {
 				var $body = $('#hh-migrator-log-body');
 				$body.empty();
 
@@ -399,10 +418,33 @@
 					});
 				}
 
+				// Update pagination.
+				var totalPages = data.total_pages || 1;
+				var totalCount = data.total_count || 0;
+				var currentPage = data.page || 1;
+				HHMigrator.logPage = currentPage;
+
+				$('#hh-migrator-log-current-page').text(currentPage);
+				$('#hh-migrator-log-total-pages').text(totalPages);
+				$('#hh-migrator-log-total').text(totalCount + ' items');
+				$('#hh-migrator-log-prev').prop('disabled', currentPage <= 1);
+				$('#hh-migrator-log-next').prop('disabled', currentPage >= totalPages);
+				$('#hh-migrator-log-pagination').toggle(totalCount > 0 && totalPages > 1);
+
 				if (onComplete) { onComplete(); }
 			}, function () {
 				if (onComplete) { onComplete(); }
 			});
+		},
+
+		/**
+		 * Change the log page by a delta (-1 or +1).
+		 *
+		 * @param {number} delta Page change direction.
+		 */
+		changeLogPage: function (delta) {
+			HHMigrator.logPage = Math.max(1, HHMigrator.logPage + delta);
+			HHMigrator._fetchAndRenderLog(null);
 		},
 
 		/**
@@ -411,9 +453,11 @@
 		fetchStatus: function () {
 			HHMigrator.ajax('hh_migrator_get_status', {}, function (data) {
 				HHMigrator.currentImportStatus = data.status || 'none';
+				HHMigrator.currentImportStale = data.stale || false;
 				HHMigrator.updateButtonStates();
 			}, function () {
 				HHMigrator.currentImportStatus = 'none';
+				HHMigrator.currentImportStale = false;
 				HHMigrator.updateButtonStates();
 			});
 		},
@@ -422,17 +466,23 @@
 		 * Enable or disable migration buttons based on the current import status.
 		 *
 		 * Status values: none, pending, uploading, ready, running, completed, cancelled, error
+		 * stale: true if the local worker has died (lock expired) while API still shows active
 		 */
 		updateButtonStates: function () {
 			var status = this.currentImportStatus;
-			var isActive = (status === 'pending' || status === 'uploading' || status === 'ready' || status === 'running');
-			var canResume = (status === 'error');
+			var stale = this.currentImportStale;
+			var activeStatuses = ['pending', 'uploading', 'ready', 'running', 'exporting_files', 'exporting_db', 'completing'];
+			var isActive = activeStatuses.indexOf(status) !== -1;
+			var canResume = (status === 'error' || (isActive && stale));
 
-			$('#hh-migrator-start-migration').prop('disabled', isActive);
-			$('#hh-migrator-resume-migration').prop('disabled', isActive && !canResume);
-			$('#hh-migrator-cancel-migration').prop('disabled', !isActive);
+			$('#hh-migrator-start-migration').prop('disabled', isActive || canResume);
+			$('#hh-migrator-resume-migration').prop('disabled', !canResume);
+			$('#hh-migrator-cancel-migration').prop('disabled', !isActive && !canResume);
 
-			var label = (status === 'none') ? 'Not Started' : status;
+			var label = (status === 'none') ? 'Not Started' : status.replace(/_/g, ' ');
+			if (stale) {
+				label += ' (stalled)';
+			}
 			$('#hh-migrator-import-status').text(label);
 		},
 
@@ -449,24 +499,29 @@
 		},
 
 		/**
-		 * Clear all migration log entries.
+		 * Clear all migration log entries (no confirmation dialog).
 		 *
 		 * @param {Event} e Click event.
 		 */
 		clearLog: function (e) {
 			e.preventDefault();
-			if (!confirm('Are you sure you want to clear all log entries?')) {
-				return;
-			}
 			var $btn = $(this);
 			HHMigrator.showSpinner($btn);
 
 			HHMigrator.ajax('hh_migrator_clear_log', {}, function (data) {
 				HHMigrator.hideSpinner($btn);
 				HHMigrator.showNotice('success', data.message || 'Log cleared.');
+				// Reset log state and pagination.
+				HHMigrator.logPage = 1;
 				$('#hh-migrator-log-body').empty().append(
 					'<tr><td colspan="4">No log entries yet.</td></tr>'
 				);
+				$('#hh-migrator-log-current-page').text('1');
+				$('#hh-migrator-log-total-pages').text('1');
+				$('#hh-migrator-log-total').text('0 items');
+				$('#hh-migrator-log-prev').prop('disabled', true);
+				$('#hh-migrator-log-next').prop('disabled', true);
+				$('#hh-migrator-log-pagination').hide();
 			}, function (data) {
 				HHMigrator.hideSpinner($btn);
 				HHMigrator.showNotice('error', data.message || 'Failed to clear log.');
@@ -474,18 +529,19 @@
 		},
 
 		/**
-		 * Download debug data.
+		 * Show destination site name and URL in the configuration section.
 		 *
-		 * @param {Event} e Click event.
+		 * @param {Object} site Site data with name and url properties.
 		 */
-		/**
-		 * Show the destination site URL in the configuration section.
-		 *
-		 * @param {string} url Destination site URL.
-		 */
-		showDestUrl: function (url) {
-			$('#hh-migrator-dest-url-link').attr('href', url).text(url);
-			$('#hh-migrator-dest-url-row').show();
+		showDestSite: function (site) {
+			if (site.name) {
+				$('#hh-migrator-dest-name').text(site.name);
+				$('#hh-migrator-dest-name-row').show();
+			}
+			if (site.url) {
+				$('#hh-migrator-dest-url-link').attr('href', site.url).text(site.url);
+				$('#hh-migrator-dest-url-row').show();
+			}
 		},
 
 		/**

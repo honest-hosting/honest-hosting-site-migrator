@@ -12,6 +12,7 @@ defined( 'ABSPATH' ) || exit;
 use HonestHosting\SiteMigrator\Api\HonestHostingClient;
 use HonestHosting\SiteMigrator\Preflight\PreflightCheckInterface;
 use HonestHosting\SiteMigrator\Preflight\PreflightResult;
+use HonestHosting\SiteMigrator\Util\FormatHelper;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 
@@ -84,7 +85,7 @@ class DestinationCapacityCheck implements PreflightCheckInterface {
 				return;
 			}
 
-			$result->add_warning(
+			$result->add_error(
 				'capacity_check_failed',
 				sprintf(
 					/* translators: %s: error message */

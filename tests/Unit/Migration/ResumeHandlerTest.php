@@ -28,7 +28,7 @@ class ResumeHandlerTest extends WP_UnitTestCase {
 	public function tear_down(): void {
 		$dir = $this->manager->get_sessions_dir();
 		if ( is_dir( $dir ) ) {
-			$files = glob( $dir . '/test-resume-*.json' );
+			$files = glob( $dir . '/test-resume-*' );
 			if ( $files ) {
 				array_map( 'unlink', $files );
 			}
@@ -95,11 +95,18 @@ class ResumeHandlerTest extends WP_UnitTestCase {
 	 * get_remaining_work respects incremental modes.
 	 */
 	public function test_get_remaining_work_incremental_files(): void {
+		$import_id = 'test-resume-incr-files';
+		$this->manager->create( $import_id, 'site-123', 'incremental_files' );
+
+		// Mark a file as completed in storage.
+		$store = $this->manager->storage( $import_id );
+		$store->mark_files_completed( array( 'file1.txt' => array( 'size' => 100, 'mtime' => 1000 ) ) );
+
 		$state = array(
-			'mode'          => 'incremental_files',
-			'status'        => 'exporting_files',
-			'file_progress' => array( 'completed_file_paths' => array( 'file1.txt' ) ),
-			'db_progress'   => array( 'completed_table_names' => array() ),
+			'import_id'   => $import_id,
+			'mode'        => 'incremental_files',
+			'status'      => 'exporting_files',
+			'db_progress' => array( 'completed_table_names' => array() ),
 		);
 
 		$remaining = $this->handler->get_remaining_work( $state );
@@ -113,11 +120,14 @@ class ResumeHandlerTest extends WP_UnitTestCase {
 	 * get_remaining_work respects incremental_db mode.
 	 */
 	public function test_get_remaining_work_incremental_db(): void {
+		$import_id = 'test-resume-incr-db';
+		$this->manager->create( $import_id, 'site-123', 'incremental_db' );
+
 		$state = array(
-			'mode'          => 'incremental_db',
-			'status'        => 'pending',
-			'file_progress' => array( 'completed_file_paths' => array() ),
-			'db_progress'   => array( 'completed_table_names' => array( 'wp_posts' ) ),
+			'import_id'   => $import_id,
+			'mode'        => 'incremental_db',
+			'status'      => 'pending',
+			'db_progress' => array( 'completed_table_names' => array( 'wp_posts' ) ),
 		);
 
 		$remaining = $this->handler->get_remaining_work( $state );

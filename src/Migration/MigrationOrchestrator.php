@@ -93,25 +93,47 @@ class MigrationOrchestrator {
 	 * @return array<string, mixed>|WP_Error Session state on success.
 	 */
 	public function run( string $import_id, string $mode ) {
-		$result = $this->execute( $import_id, $mode );
+		$start_time = microtime( true );
+		$result     = $this->execute( $import_id, $mode );
 
 		if ( is_wp_error( $result ) ) {
-			$this->session_manager->update(
-				$import_id,
-				array(
-					'status'     => 'failed',
-					'last_error' => $result->get_error_message(),
-				)
-			);
-			$this->session_manager->release_lock( $import_id );
-			$this->logger->log( $import_id, 'failure', $result->get_error_message(), array(), 'ERROR' );
+			$this->handle_run_error( $import_id, $result );
 			return $result;
 		}
+
+		$duration = (int) round( microtime( true ) - $start_time );
+		$this->logger->log( $import_id, 'export.completed', sprintf( 'Export finalized successfully, total duration: %ds', $duration ) );
 
 		$this->session_manager->update( $import_id, array( 'status' => 'completed' ) );
 		$this->session_manager->release_lock( $import_id );
 
 		return $this->session_manager->load( $import_id ) ?? array( 'import_id' => $import_id );
+	}
+
+	/**
+	 * Handle an error from the execute pipeline.
+	 *
+	 * @param string   $import_id Import session UUID.
+	 * @param WP_Error $error     The error that occurred.
+	 * @return void
+	 */
+	private function handle_run_error( string $import_id, WP_Error $error ): void {
+		if ( 'hh_migrator_cancelled' === $error->get_error_code() ) {
+			$this->session_manager->update( $import_id, array( 'status' => 'cancelled' ) );
+			$this->session_manager->release_lock( $import_id );
+			$this->logger->log( $import_id, 'cancelled', $error->get_error_message(), array(), 'INFO' );
+			return;
+		}
+
+		$this->session_manager->update(
+			$import_id,
+			array(
+				'status'     => 'failed',
+				'last_error' => $error->get_error_message(),
+			)
+		);
+		$this->session_manager->release_lock( $import_id );
+		$this->logger->log( $import_id, 'failure', $error->get_error_message(), array(), 'ERROR' );
 	}
 
 	/**
@@ -130,13 +152,12 @@ class MigrationOrchestrator {
 			return new WP_Error( 'hh_migrator_invalid_mode', __( 'Invalid migration mode.', 'honest-hosting-site-migrator' ) );
 		}
 
-		// Check for existing incomplete session.
+		// Block if an incomplete session exists — user must Resume or Cancel first.
 		$existing = $this->resume_handler->find_resumable( $site_id );
 		if ( null !== $existing ) {
 			return new WP_Error(
 				'hh_migrator_session_exists',
-				__( 'An incomplete session exists for this destination. Resume or cancel it first.', 'honest-hosting-site-migrator' ),
-				array( 'import_id' => $existing['import_id'] ?? '' )
+				__( 'A previous migration session exists. Resume it or cancel before starting a new one.', 'honest-hosting-site-migrator' )
 			);
 		}
 
@@ -176,7 +197,7 @@ class MigrationOrchestrator {
 			return new WP_Error( 'hh_migrator_lock_failed', __( 'Could not acquire session lock.', 'honest-hosting-site-migrator' ) );
 		}
 
-		$this->logger->log( $import_id, 'full' === $mode ? 'export.full.started' : 'export.incremental.started', 'Migration started.', array( 'mode' => $mode ) );
+		$this->logger->log( $import_id, 'export.' . $mode . '.started', 'Migration started.', array( 'mode' => $mode ) );
 
 		return $state;
 	}
@@ -211,15 +232,7 @@ class MigrationOrchestrator {
 		$result = $this->execute( $import_id, $mode );
 
 		if ( is_wp_error( $result ) ) {
-			$this->session_manager->update(
-				$import_id,
-				array(
-					'status'     => 'failed',
-					'last_error' => $result->get_error_message(),
-				)
-			);
-			$this->session_manager->release_lock( $import_id );
-			$this->logger->log( $import_id, 'failure', $result->get_error_message(), array(), 'ERROR' );
+			$this->handle_run_error( $import_id, $result );
 			return $result;
 		}
 
@@ -270,8 +283,8 @@ class MigrationOrchestrator {
 		}
 
 		$remaining  = $this->resume_handler->get_remaining_work( $state );
-		$chunk_size = $state['chunk_size_bytes'] ?? ( 2 * 1024 * 1024 );
-		$encoder    = new ChunkEncoder();
+		$chunk_size = $state['chunk_size_bytes'] ?? ( 10 * 1024 * 1024 );
+		$encoder    = new ChunkEncoder( 'none' === get_option( 'hh_migrator_compression', 'auto' ) ? false : null );
 		$uploader   = new S3Uploader( $this->client );
 
 		// Run preflight if not already done.
@@ -290,14 +303,14 @@ class MigrationOrchestrator {
 
 		// Database export.
 		if ( ! $remaining['skip_db'] ) {
-			$result = $this->execute_db_export( $import_id, $mode, $state, $uploader, $encoder, $remaining, $chunk_size );
+			$result = $this->execute_db_export( $import_id, $mode, $uploader, $encoder, $remaining, $chunk_size );
 			if ( is_wp_error( $result ) ) {
 				return $result;
 			}
 		}
 
 		// Build and upload manifest, then finalize.
-		return $this->execute_finalize( $import_id, $encoder, $uploader );
+		return $this->execute_finalize( $import_id, $uploader );
 	}
 
 	/**
@@ -308,7 +321,12 @@ class MigrationOrchestrator {
 	 * @return true|WP_Error
 	 */
 	private function execute_preflight( string $import_id, array $state ) {
-		if ( null !== ( $state['preflight_result'] ?? null ) ) {
+		// Skip if preflight was already run (either in this session or via the UI).
+		$already_run = null !== ( $state['preflight_result'] ?? null )
+			|| (int) get_option( 'hh_migrator_last_preflight', 0 ) > 0;
+
+		if ( $already_run ) {
+			$this->session_manager->update( $import_id, array( 'preflight_result' => 'passed_via_ui' ) );
 			return true;
 		}
 
@@ -343,14 +361,16 @@ class MigrationOrchestrator {
 	private function execute_file_export( string $import_id, string $mode, array $state, S3Uploader $uploader, ChunkEncoder $encoder, array $remaining, int $chunk_size ) {
 		$this->logger->log( $import_id, 'file_scan.started', 'File scan starting.' );
 
-		$file_exporter = new FileExporter( $uploader, $encoder, $this->session_manager, $this->logger );
-		$manifest      = $file_exporter->scan();
+		$file_exporter  = new FileExporter( $uploader, $encoder, $this->session_manager, $this->logger );
+		$is_incremental = str_starts_with( $mode, 'incremental' );
+		$manifest       = $file_exporter->scan( $import_id );
 
 		$this->logger->log( $import_id, 'file_scan.completed', sprintf( 'File scan completed: %d files found.', count( $manifest ) ) );
 
-		if ( str_starts_with( $mode, 'incremental' ) ) {
-			$previous_hashes = $state['file_manifest_hashes'] ?? array();
-			$manifest        = $file_exporter->diff( $manifest, $previous_hashes );
+		if ( $is_incremental ) {
+			$previous_meta = $this->load_previous_file_metadata( $state['destination_site_id'] ?? '', $import_id );
+			$manifest      = $file_exporter->diff( $manifest, $previous_meta );
+			$this->logger->log( $import_id, 'file_scan.diff', sprintf( '%d files changed since last session.', count( $manifest ) ) );
 		}
 
 		$result = $file_exporter->export( $import_id, $manifest, $remaining['completed_files'], $chunk_size );
@@ -363,25 +383,52 @@ class MigrationOrchestrator {
 	}
 
 	/**
+	 * Load file metadata from the most recent completed session for this destination.
+	 *
+	 * @param string $destination_site_id Destination site ULID.
+	 * @param string $current_import_id   Current import session to exclude.
+	 * @return array<string, array{size: int, mtime: int}>
+	 */
+	private function load_previous_file_metadata( string $destination_site_id, string $current_import_id ): array {
+		$sessions = $this->session_manager->list_all();
+
+		foreach ( $sessions as $session ) {
+			$sid = $session['import_id'] ?? '';
+			if (
+				$sid !== $current_import_id
+				&& ( $session['destination_site_id'] ?? '' ) === $destination_site_id
+				&& 'completed' === ( $session['status'] ?? '' )
+			) {
+				$store = $this->session_manager->storage( $sid );
+				if ( method_exists( $store, 'get_file_metadata' ) ) {
+					return $store->get_file_metadata();
+				}
+				break;
+			}
+		}
+
+		return array();
+	}
+
+	/**
 	 * Execute the database export phase.
 	 *
 	 * @param string               $import_id Import session UUID.
 	 * @param string               $mode      Migration mode.
-	 * @param array<string, mixed> $state     Session state.
 	 * @param S3Uploader           $uploader  S3 uploader.
 	 * @param ChunkEncoder         $encoder   Chunk encoder.
 	 * @param array<string, mixed> $remaining Remaining work descriptor.
 	 * @param int                  $chunk_size Chunk size in bytes.
 	 * @return true|WP_Error
 	 */
-	private function execute_db_export( string $import_id, string $mode, array $state, S3Uploader $uploader, ChunkEncoder $encoder, array $remaining, int $chunk_size ) {
+	private function execute_db_export( string $import_id, string $mode, S3Uploader $uploader, ChunkEncoder $encoder, array $remaining, int $chunk_size ) {
 		$this->logger->log( $import_id, 'db_export.started', 'Database export starting.' );
 
 		$db_exporter = new DatabaseExporter( $uploader, $encoder, $this->session_manager, $this->logger );
 		$skip_tables = $remaining['completed_tables'];
 
 		if ( str_starts_with( $mode, 'incremental' ) ) {
-			$previous_checksums = $state['db_table_checksums'] ?? array();
+			$previous_checksums = $this->session_manager->storage( $import_id )->get_table_checksums();
 			$tables             = $db_exporter->get_tables();
 			$current_checksums  = $db_exporter->get_checksums( $tables );
 
@@ -405,12 +452,11 @@ class MigrationOrchestrator {
 	/**
 	 * Build manifest, upload as final chunk, and finalize the import.
 	 *
-	 * @param string       $import_id Import session UUID.
-	 * @param ChunkEncoder $encoder   Chunk encoder.
-	 * @param S3Uploader   $uploader  S3 uploader.
+	 * @param string     $import_id Import session UUID.
+	 * @param S3Uploader $uploader  S3 uploader.
 	 * @return true|WP_Error
 	 */
-	private function execute_finalize( string $import_id, ChunkEncoder $encoder, S3Uploader $uploader ) {
+	private function execute_finalize( string $import_id, S3Uploader $uploader ) {
 		$this->session_manager->update( $import_id, array( 'status' => 'completing' ) );
 
 		$manifest_builder = new ManifestBuilder();
@@ -419,20 +465,29 @@ class MigrationOrchestrator {
 			return new WP_Error( 'hh_migrator_session_not_found', __( 'Session not found.', 'honest-hosting-site-migrator' ) );
 		}
 
+		// Load bulk data directly from storage for manifest building (not kept in $state to save memory).
+		$store                             = $this->session_manager->storage( $import_id );
+		$final_state['chunk_references']   = $store->get_chunk_refs();
+		$final_state['file_manifest_meta'] = $store->get_file_metadata();
+		$final_state['db_table_checksums'] = $store->get_table_checksums();
+
+		$chunk_refs = $final_state['chunk_references'];
+		$file_meta  = $final_state['file_manifest_meta'];
+		$this->logger->log( $import_id, 'finalize.state', sprintf( 'Building manifest: %d chunk_references, %d files', count( $chunk_refs ), count( $file_meta ) ) );
+
 		$manifest_data = $manifest_builder->build( $final_state );
 		$manifest_json = wp_json_encode( $manifest_data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 		if ( ! is_string( $manifest_json ) ) {
 			return new WP_Error( 'hh_migrator_manifest_encode_failed', __( 'Failed to encode manifest.', 'honest-hosting-site-migrator' ) );
 		}
 
-		$encoded = $encoder->encode( $manifest_json, $import_id, 999999, '_manifest.json', 'manifest' );
-
+		// Upload manifest as plain JSON — not compressed — so the restore binary can read it directly.
 		$upload_result = $uploader->upload_chunk(
 			$import_id,
 			999999,
-			$encoded['data'],
+			$manifest_json,
 			'application/json',
-			$encoded['compressed']
+			false
 		);
 
 		if ( is_wp_error( $upload_result ) ) {

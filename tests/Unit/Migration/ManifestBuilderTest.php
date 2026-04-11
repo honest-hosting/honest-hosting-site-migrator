@@ -32,9 +32,9 @@ class ManifestBuilderTest extends WP_UnitTestCase {
 			'db_progress'          => array(
 				'completed_table_names' => array( 'wp_posts', 'wp_options' ),
 			),
-			'file_manifest_hashes' => array(
-				'themes/theme/style.css' => 'abc123',
-				'plugins/plugin/main.php' => 'def456',
+			'file_manifest_meta' => array(
+				'themes/theme/style.css'  => array( 'size' => 1024, 'mtime' => 1700000000 ),
+				'plugins/plugin/main.php' => array( 'size' => 2048, 'mtime' => 1700000000 ),
 			),
 			'chunk_references'     => array(
 				array(
@@ -70,7 +70,7 @@ class ManifestBuilderTest extends WP_UnitTestCase {
 		$manifest = $builder->build( array(
 			'import_id'            => 'test',
 			'chunk_references'     => array(),
-			'file_manifest_hashes' => array(),
+			'file_manifest_meta' => array(),
 			'file_progress'        => array(),
 			'db_progress'          => array( 'completed_table_names' => array() ),
 		) );
@@ -100,7 +100,7 @@ class ManifestBuilderTest extends WP_UnitTestCase {
 				array( 'type' => 'file', 's3_key' => 'b', 'source_path' => 'y' ),
 				array( 'type' => 'database', 's3_key' => 'c', 'source_path' => 'z' ),
 			),
-			'file_manifest_hashes' => array(),
+			'file_manifest_meta' => array(),
 		) );
 
 		$this->assertEquals( 5, $manifest['totals']['file_count'] );
