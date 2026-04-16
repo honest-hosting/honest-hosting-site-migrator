@@ -13,6 +13,7 @@ use HonestHosting\SiteMigrator\Api\HonestHostingClient;
 use HonestHosting\SiteMigrator\Preflight\Checks\FileAnalysisCheck;
 use HonestHosting\SiteMigrator\Preflight\Checks\DatabaseAnalysisCheck;
 use HonestHosting\SiteMigrator\Preflight\Checks\HostingEnvironmentCheck;
+use HonestHosting\SiteMigrator\Preflight\Checks\MigrationReadinessCheck;
 use HonestHosting\SiteMigrator\Preflight\Checks\PhpCompatibilityCheck;
 use HonestHosting\SiteMigrator\Preflight\Checks\DestinationCapacityCheck;
 use HonestHosting\SiteMigrator\Preflight\Checks\DestinationFingerprintCheck;
@@ -40,6 +41,7 @@ class PreflightRunner {
 		} else {
 			$client       = new HonestHostingClient();
 			$this->checks = array(
+				new MigrationReadinessCheck(),
 				new DestinationFingerprintCheck( $client ),
 				new FileAnalysisCheck(),
 				new DatabaseAnalysisCheck(),

@@ -9,6 +9,8 @@ namespace HonestHosting\SiteMigrator\Storage;
 
 defined( 'ABSPATH' ) || exit;
 
+use HonestHosting\SiteMigrator\Util\LockHolder;
+
 /**
  * Stores migration session state in WordPress MySQL tables.
  *
@@ -469,7 +471,7 @@ class MysqlStorage implements SessionStorageInterface {
 			return false;
 		}
 
-		$new_holder = gethostname() . ':' . getmypid() . ':' . time();
+		$new_holder = LockHolder::build();
 		$this->set_many(
 			array(
 				'lock_holder'  => $new_holder,

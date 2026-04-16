@@ -9,6 +9,7 @@ namespace HonestHosting\SiteMigrator\Storage;
 
 defined( 'ABSPATH' ) || exit;
 
+use HonestHosting\SiteMigrator\Util\LockHolder;
 use RuntimeException;
 use SQLite3;
 
@@ -419,7 +420,7 @@ class SqliteStorage implements SessionStorageInterface {
 
 		$this->set_many(
 			array(
-				'lock_holder'  => gethostname() . ':' . getmypid() . ':' . time(),
+				'lock_holder'  => LockHolder::build(),
 				'lock_expires' => time() + self::LOCK_TTL,
 			)
 		);

@@ -92,12 +92,58 @@
 						HHMigrator.showNotice('error', response.data.message || 'An error occurred.');
 					}
 				}
-			}).fail(function () {
+			}).fail(function (jqXHR, textStatus, errorThrown) {
 				// Hide any active spinners on the page.
 				$('.spinner.is-active').remove();
 				$('.button:disabled').prop('disabled', false);
-				HHMigrator.showNotice('error', 'Request failed. Please try again.');
+				HHMigrator.showNotice('error', HHMigrator.formatAjaxError(action, jqXHR, textStatus, errorThrown));
 			});
+		},
+
+		/**
+		 * Build a human-readable error message from a jQuery AJAX failure.
+		 *
+		 * Surfaces the HTTP status, statusText, and any parseable JSON message
+		 * or response snippet so server-side failures (PHP fatals, 500s, gateway
+		 * timeouts, nonce/cap rejections) aren't hidden behind a generic notice.
+		 *
+		 * @param {string} action      AJAX action name that failed.
+		 * @param {Object} jqXHR       jQuery XHR wrapper.
+		 * @param {string} textStatus  jQuery textStatus ('timeout', 'error', 'parsererror', 'abort').
+		 * @param {string} errorThrown HTTP status text or thrown exception.
+		 * @return {string} Notice-ready message.
+		 */
+		formatAjaxError: function (action, jqXHR, textStatus, errorThrown) {
+			var status = (jqXHR && jqXHR.status) || 0;
+			var detail = '';
+
+			if (textStatus === 'timeout') {
+				detail = 'request timed out';
+			} else if (status === 0) {
+				detail = 'no response (network error or request aborted)';
+			} else {
+				var body = (jqXHR && jqXHR.responseText) || '';
+				var parsed = null;
+				try { parsed = JSON.parse(body); } catch (e) { /* not JSON */ }
+
+				if (parsed && parsed.data && parsed.data.message) {
+					detail = parsed.data.message;
+				} else if (parsed && typeof parsed === 'object' && parsed.message) {
+					detail = parsed.message;
+				} else if (body) {
+					// Strip HTML tags and collapse whitespace to surface PHP fatal text.
+					var text = body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+					if (text.length > 240) { text = text.substring(0, 240) + '…'; }
+					detail = text || (errorThrown || textStatus || 'unknown error');
+				} else {
+					detail = errorThrown || textStatus || 'unknown error';
+				}
+			}
+
+			var prefix = 'Request failed (' + action;
+			if (status) { prefix += ', HTTP ' + status; }
+			prefix += '): ';
+			return prefix + detail;
 		},
 
 		/**
@@ -143,8 +189,8 @@
 				setTimeout(function () { $notice.remove(); }, 300);
 			});
 
-			// Auto-dismiss: errors stay 8s, others 4s.
-			var delay = type === 'error' ? 8000 : 4000;
+			// Auto-dismiss: errors stay 30s (long enough to read diagnostics), others 4s.
+			var delay = type === 'error' ? 30000 : 4000;
 			setTimeout(function () {
 				if ($notice.parent().length) {
 					$notice.addClass('hh-migrator-fade-out');

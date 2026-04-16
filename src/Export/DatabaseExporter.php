@@ -327,8 +327,10 @@ class DatabaseExporter {
 					}
 					$buffer = '';
 					++$chunk_index;
-					// phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- Reset PHP execution timer after each chunk flush to prevent timeout during large table exports on hosts with low max_execution_time.
-					set_time_limit( max( 60, (int) ini_get( 'max_execution_time' ) ) );
+					if ( function_exists( 'set_time_limit' ) ) {
+						// phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- Reset PHP execution timer after each chunk flush to prevent timeout during large table exports on hosts with low max_execution_time.
+						set_time_limit( max( 60, (int) ini_get( 'max_execution_time' ) ) );
+					}
 				}
 			}
 
@@ -358,6 +360,11 @@ class DatabaseExporter {
 			sprintf( 'Uploading db chunk-%d for %s (%s raw, %s encoded).', $chunk_index, $table_name, FormatHelper::format_bytes( $raw_size ), FormatHelper::format_bytes( strlen( $encoded['data'] ) ) )
 		);
 
+		// Refresh the session lock immediately before the S3 upload so the UI's
+		// "stalled" detector doesn't trip when a single chunk takes longer than
+		// LOCK_TTL on a slow uplink.
+		$this->session_manager->refresh_lock( $import_id );
+
 		$result = $this->uploader->upload_chunk(
 			$import_id,
 			$chunk_index,
@@ -371,8 +378,10 @@ class DatabaseExporter {
 			return $result;
 		}
 
-		// phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- Reset PHP execution timer after final DB chunk upload to prevent timeout on hosts with low max_execution_time.
-		set_time_limit( max( 60, (int) ini_get( 'max_execution_time' ) ) );
+		if ( function_exists( 'set_time_limit' ) ) {
+			// phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- Reset PHP execution timer after final DB chunk upload to prevent timeout on hosts with low max_execution_time.
+			set_time_limit( max( 60, (int) ini_get( 'max_execution_time' ) ) );
+		}
 
 		// Record chunk reference.
 		$this->session_manager->storage( $import_id )->add_chunk_ref(

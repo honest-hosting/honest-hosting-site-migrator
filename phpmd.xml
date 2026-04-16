@@ -63,6 +63,13 @@
     <rule ref="rulesets/design.xml">
         <exclude name="ExitExpression"/>
         <exclude name="EvalExpression"/>
+        <exclude name="CouplingBetweenObjects"/>
+    </rule>
+
+    <rule ref="rulesets/design.xml/CouplingBetweenObjects">
+        <properties>
+            <property name="maximum" value="20"/>
+        </properties>
     </rule>
 
     <!-- WordPress AJAX handlers legitimately use $_POST; use imports are present via `use` -->

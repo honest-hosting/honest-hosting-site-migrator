@@ -16,6 +16,7 @@ use HonestHosting\SiteMigrator\Export\DatabaseExporter;
 use HonestHosting\SiteMigrator\Export\FileExporter;
 use HonestHosting\SiteMigrator\Log\MigrationLogger;
 use HonestHosting\SiteMigrator\Preflight\PreflightRunner;
+use Throwable;
 use WP_Error;
 
 /**
@@ -187,17 +188,37 @@ class MigrationOrchestrator {
 			return new WP_Error( 'hh_migrator_no_import_id', __( 'Backend did not return an import UUID.', 'honest-hosting-site-migrator' ) );
 		}
 
-		// Create local session.
-		$state  = $this->session_manager->create( $import_id, $site_id, $mode );
-		$engine = $this->session_manager->storage( $import_id )->get_engine_name();
-		$this->logger->log( $import_id, 'session.created', sprintf( 'Session created (storage engine: %s).', $engine ) );
+		// Wrap local-session setup in a Throwable catch so DB/storage exceptions
+		// surface as a logged error + clean WP_Error to the UI, instead of an
+		// opaque 500 from an uncaught exception.
+		try {
+			$state  = $this->session_manager->create( $import_id, $site_id, $mode );
+			$engine = $this->session_manager->storage( $import_id )->get_engine_name();
+			$this->logger->log( $import_id, 'session.created', sprintf( 'Session created (storage engine: %s).', $engine ) );
 
-		// Acquire lock.
-		if ( ! $this->session_manager->acquire_lock( $import_id ) ) {
-			return new WP_Error( 'hh_migrator_lock_failed', __( 'Could not acquire session lock.', 'honest-hosting-site-migrator' ) );
+			$this->logger->log( $import_id, 'lock.acquiring', 'Attempting to acquire session lock.' );
+			$locked = $this->session_manager->acquire_lock( $import_id );
+			if ( ! $locked ) {
+				$this->logger->log( $import_id, 'lock.contended', 'Lock is already held by another process.', array(), 'WARN' );
+				return new WP_Error( 'hh_migrator_lock_failed', __( 'Could not acquire session lock.', 'honest-hosting-site-migrator' ) );
+			}
+			$this->logger->log( $import_id, 'lock.acquired', 'Session lock acquired.' );
+
+			$this->logger->log( $import_id, 'export.' . $mode . '.started', 'Migration started.', array( 'mode' => $mode ) );
+		} catch ( Throwable $e ) {
+			$detail = sprintf( '%s: %s at %s:%d', get_class( $e ), $e->getMessage(), $e->getFile(), $e->getLine() );
+			$this->logger->log(
+				$import_id,
+				'prepare.exception',
+				$detail,
+				array( 'trace' => $e->getTraceAsString() ),
+				'ERROR'
+			);
+			return new WP_Error(
+				'hh_migrator_prepare_failed',
+				__( 'Migration failed to start. See the migration log for details.', 'honest-hosting-site-migrator' )
+			);
 		}
-
-		$this->logger->log( $import_id, 'export.' . $mode . '.started', 'Migration started.', array( 'mode' => $mode ) );
 
 		return $state;
 	}
