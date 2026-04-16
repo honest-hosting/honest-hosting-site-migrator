@@ -161,9 +161,7 @@ class MigrationReadinessCheck implements \HonestHosting\SiteMigrator\Preflight\P
 			return;
 		}
 
-		// $sessions_dir is constructed from wp_upload_dir()['basedir'], so this is safe.
-		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_is_writable
-		if ( ! is_writable( $sessions_dir ) ) {
+		if ( ! wp_is_writable( $sessions_dir ) ) {
 			$result->add_error(
 				'sessions_dir_not_writable',
 				sprintf(
