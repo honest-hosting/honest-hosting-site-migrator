@@ -11,6 +11,7 @@ defined( 'ABSPATH' ) || exit;
 
 use HonestHosting\SiteMigrator\Preflight\PreflightCheckInterface;
 use HonestHosting\SiteMigrator\Preflight\PreflightResult;
+use HonestHosting\SiteMigrator\Util\PathHelper;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 
@@ -49,7 +50,7 @@ class FileAnalysisCheck implements PreflightCheckInterface {
 	 * @return void
 	 */
 	public function run( PreflightResult $result ): void {
-		$wp_content = $this->wp_content_path ?? WP_CONTENT_DIR;
+		$wp_content = $this->wp_content_path ?? PathHelper::wp_content_dir();
 
 		if ( ! is_dir( $wp_content ) ) {
 			$result->add_error( 'wp_content_missing', __( 'wp-content directory not found.', 'honest-hosting-site-migrator' ) );

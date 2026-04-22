@@ -13,6 +13,7 @@ use HonestHosting\SiteMigrator\Api\HonestHostingClient;
 use HonestHosting\SiteMigrator\Preflight\PreflightCheckInterface;
 use HonestHosting\SiteMigrator\Preflight\PreflightResult;
 use HonestHosting\SiteMigrator\Util\FormatHelper;
+use HonestHosting\SiteMigrator\Util\PathHelper;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 
@@ -112,7 +113,7 @@ class DestinationCapacityCheck implements PreflightCheckInterface {
 		// File size estimate.
 		$file_bytes = 0;
 		$file_count = 0;
-		$wp_content = WP_CONTENT_DIR;
+		$wp_content = PathHelper::wp_content_dir();
 
 		if ( is_dir( $wp_content ) ) {
 			try {

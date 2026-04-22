@@ -328,8 +328,8 @@ class DatabaseExporter {
 					$buffer = '';
 					++$chunk_index;
 					if ( function_exists( 'set_time_limit' ) ) {
-						// phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- Reset PHP execution timer after each chunk flush to prevent timeout during large table exports on hosts with low max_execution_time.
-						set_time_limit( max( 60, (int) ini_get( 'max_execution_time' ) ) );
+						// phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- Refresh the PHP execution timer to the host's configured max_execution_time after each chunk flush during an active export loop. Does not override the host's limit upward; unlimited hosts (value 0) remain unlimited.
+						set_time_limit( (int) ini_get( 'max_execution_time' ) );
 					}
 				}
 			}
@@ -379,8 +379,8 @@ class DatabaseExporter {
 		}
 
 		if ( function_exists( 'set_time_limit' ) ) {
-			// phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- Reset PHP execution timer after final DB chunk upload to prevent timeout on hosts with low max_execution_time.
-			set_time_limit( max( 60, (int) ini_get( 'max_execution_time' ) ) );
+			// phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- Refresh the PHP execution timer to the host's configured max_execution_time after the final DB chunk upload. Does not override the host's limit upward; unlimited hosts (value 0) remain unlimited.
+			set_time_limit( (int) ini_get( 'max_execution_time' ) );
 		}
 
 		// Record chunk reference.

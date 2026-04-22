@@ -13,6 +13,7 @@ use HonestHosting\SiteMigrator\Api\S3Uploader;
 use HonestHosting\SiteMigrator\Log\MigrationLogger;
 use HonestHosting\SiteMigrator\Migration\SessionManager;
 use HonestHosting\SiteMigrator\Util\FormatHelper;
+use HonestHosting\SiteMigrator\Util\PathHelper;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use WP_Error;
@@ -89,7 +90,7 @@ class FileExporter {
 	 * @return array<string, array{path: string, size: int, mtime: int}> Keyed by relative path.
 	 */
 	public function scan( string $import_id = '' ): array {
-		$wp_content = $this->wp_content_path ?? WP_CONTENT_DIR;
+		$wp_content = $this->wp_content_path ?? PathHelper::wp_content_dir();
 		$manifest   = array();
 		$state_dir  = $this->get_state_dir();
 		$count      = 0;
@@ -126,8 +127,8 @@ class FileExporter {
 			++$count;
 			if ( 0 === $count % 2500 ) {
 				if ( function_exists( 'set_time_limit' ) ) {
-					// phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- Reset PHP execution timer to prevent timeout during long-running file scans on shared hosting with low max_execution_time limits.
-					set_time_limit( max( 60, (int) ini_get( 'max_execution_time' ) ) );
+					// phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- Refresh the PHP execution timer to the host's configured max_execution_time every 2500 files during an active scan loop. Does not override the host's limit upward; unlimited hosts (value 0) remain unlimited.
+					set_time_limit( (int) ini_get( 'max_execution_time' ) );
 				}
 				$this->logger->log( $import_id, 'file_scan.progress', sprintf( 'Scanned %d files...', $count ) );
 			}
@@ -171,7 +172,7 @@ class FileExporter {
 	 * @return true|WP_Error
 	 */
 	public function export( string $import_id, array $manifest, array $skip_paths, int $chunk_size ) {
-		$wp_content  = $this->wp_content_path ?? WP_CONTENT_DIR;
+		$wp_content  = $this->wp_content_path ?? PathHelper::wp_content_dir();
 		$chunk_index = $this->get_next_chunk_index( $import_id );
 		$total       = count( $manifest );
 		$skip_set    = array_flip( $skip_paths );
@@ -430,8 +431,8 @@ class FileExporter {
 		$chunk_refs[] = array_merge( $encoded['metadata'], $result );
 
 		if ( function_exists( 'set_time_limit' ) ) {
-			// phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- Reset PHP execution timer after each chunk upload to prevent timeout when exporting many files on hosts with low max_execution_time.
-			set_time_limit( max( 60, (int) ini_get( 'max_execution_time' ) ) );
+			// phpcs:ignore Squiz.PHP.DiscouragedFunctions.Discouraged -- Refresh the PHP execution timer to the host's configured max_execution_time after each chunk upload during an active export loop. Does not override the host's limit upward; unlimited hosts (value 0) remain unlimited.
+			set_time_limit( (int) ini_get( 'max_execution_time' ) );
 		}
 
 		return true;

@@ -9,6 +9,7 @@ namespace HonestHosting\SiteMigrator\Migration;
 
 defined( 'ABSPATH' ) || exit;
 
+use HonestHosting\SiteMigrator\Util\PathHelper;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 
@@ -40,7 +41,7 @@ class SourceEstimator {
 	private function scan_wp_content(): array {
 		$bytes      = 0;
 		$count      = 0;
-		$wp_content = WP_CONTENT_DIR;
+		$wp_content = PathHelper::wp_content_dir();
 
 		if ( ! is_dir( $wp_content ) ) {
 			return array(
