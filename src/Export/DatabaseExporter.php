@@ -303,10 +303,10 @@ class DatabaseExporter {
 						$hex      = bin2hex( $value );
 						$values[] = '' === $hex ? "''" : '0x' . $hex;
 					} else {
-						// Use mysqli directly to avoid WordPress placeholder escaping
-						// that mangles literal % characters in data (WP 6.2+).
-						// phpcs:ignore WordPress.DB.RestrictedFunctions.mysql_mysqli_real_escape_string -- $wpdb->_real_escape() adds placeholder escaping that corrupts exported SQL.
-						$values[] = "'" . mysqli_real_escape_string( $wpdb->dbh, $value ) . "'";
+						// _real_escape() wraps every `%` in a placeholder token so it can
+						// survive a later prepare() pass. We're writing a raw SQL dump,
+						// not calling prepare(), so strip the tokens back to literal `%`.
+						$values[] = "'" . $wpdb->remove_placeholder_escape( $wpdb->_real_escape( $value ) ) . "'";
 					}
 				}
 

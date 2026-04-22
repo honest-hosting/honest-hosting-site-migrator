@@ -11,6 +11,7 @@ use HonestHosting\SiteMigrator\Export\DatabaseExporter;
 use HonestHosting\SiteMigrator\Export\ChunkEncoder;
 use HonestHosting\SiteMigrator\Api\S3Uploader;
 use HonestHosting\SiteMigrator\Api\HonestHostingClient;
+use HonestHosting\SiteMigrator\Log\MigrationLogger;
 use HonestHosting\SiteMigrator\Migration\SessionManager;
 use WP_UnitTestCase;
 
@@ -48,7 +49,7 @@ class DatabaseExportIntegrationTest extends WP_UnitTestCase {
 
 		$client   = new HonestHostingClient( 'key' );
 		$uploader = new S3Uploader( $client );
-		$exporter = new DatabaseExporter( $uploader, $encoder, $this->session_manager );
+		$exporter = new DatabaseExporter( $uploader, $encoder, $this->session_manager, new MigrationLogger() );
 
 		$tables = $exporter->get_tables();
 
@@ -79,7 +80,7 @@ class DatabaseExportIntegrationTest extends WP_UnitTestCase {
 
 		$client   = new HonestHostingClient( 'key' );
 		$uploader = new S3Uploader( $client );
-		$exporter = new DatabaseExporter( $uploader, $encoder, $this->session_manager );
+		$exporter = new DatabaseExporter( $uploader, $encoder, $this->session_manager, new MigrationLogger() );
 
 		$tables    = $exporter->get_tables();
 		$checksums = $exporter->get_checksums( $tables );

@@ -26,6 +26,9 @@ class SessionResumeIntegrationTest extends WP_UnitTestCase {
 	}
 
 	public function tear_down(): void {
+		// Clean up both session JSON and per-session storage (files/DB progress tables).
+		$this->manager->delete( 'resume-integ-001' );
+
 		$dir = $this->manager->get_sessions_dir();
 		if ( is_dir( $dir ) ) {
 			$files = glob( $dir . '/resume-integ-*.json' );
@@ -49,14 +52,23 @@ class SessionResumeIntegrationTest extends WP_UnitTestCase {
 		$this->manager->update( 'resume-integ-001', array(
 			'status'        => 'exporting_files',
 			'file_progress' => array(
-				'total_files'          => 10,
-				'completed_files'      => 3,
-				'current_file'         => 'plugins/myplugin/main.php',
-				'completed_file_paths' => array( 'themes/t1/style.css', 'themes/t1/functions.php', 'plugins/p1/p1.php' ),
-				'total_bytes'          => 1048576,
-				'uploaded_bytes'       => 314572,
+				'total_files'     => 10,
+				'completed_files' => 3,
+				'current_file'    => 'plugins/myplugin/main.php',
+				'total_bytes'     => 1048576,
+				'uploaded_bytes'  => 314572,
 			),
 		) );
+
+		// Completed files are tracked in the per-session storage (not session JSON),
+		// which is the source of truth for ResumeHandler::get_remaining_work().
+		$this->manager->storage( 'resume-integ-001' )->mark_files_completed(
+			array(
+				'themes/t1/style.css'     => array( 'size' => 100, 'mtime' => 1700000000 ),
+				'themes/t1/functions.php' => array( 'size' => 200, 'mtime' => 1700000000 ),
+				'plugins/p1/p1.php'       => array( 'size' => 300, 'mtime' => 1700000000 ),
+			)
+		);
 
 		// 3. Simulate interrupt — release lock (as if PHP timed out and lock expired).
 		$this->manager->release_lock( 'resume-integ-001' );

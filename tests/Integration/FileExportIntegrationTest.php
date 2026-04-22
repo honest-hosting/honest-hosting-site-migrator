@@ -11,6 +11,7 @@ use HonestHosting\SiteMigrator\Export\ChunkEncoder;
 use HonestHosting\SiteMigrator\Export\FileExporter;
 use HonestHosting\SiteMigrator\Api\S3Uploader;
 use HonestHosting\SiteMigrator\Api\HonestHostingClient;
+use HonestHosting\SiteMigrator\Log\MigrationLogger;
 use HonestHosting\SiteMigrator\Migration\SessionManager;
 use WP_UnitTestCase;
 
@@ -59,7 +60,7 @@ class FileExportIntegrationTest extends WP_UnitTestCase {
 
 		$client   = new HonestHostingClient( 'key' );
 		$uploader = new S3Uploader( $client );
-		$exporter = new FileExporter( $uploader, $encoder, $this->session_manager, $this->temp_dir );
+		$exporter = new FileExporter( $uploader, $encoder, $this->session_manager, new MigrationLogger(), $this->temp_dir );
 
 		$manifest = $exporter->scan();
 
@@ -103,7 +104,7 @@ class FileExportIntegrationTest extends WP_UnitTestCase {
 		$client   = new HonestHostingClient( 'key' );
 		$uploader = new S3Uploader( $client );
 		$encoder  = new ChunkEncoder( false );
-		$exporter = new FileExporter( $uploader, $encoder, $this->session_manager, $this->temp_dir );
+		$exporter = new FileExporter( $uploader, $encoder, $this->session_manager, new MigrationLogger(), $this->temp_dir );
 
 		$current = $exporter->scan();
 		$changed = $exporter->diff( $current, $previous_meta );

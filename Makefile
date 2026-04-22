@@ -16,9 +16,15 @@ help: ## Display this help screen (default)
 
 test: export TEST_TYPE ?= test:unit
 test: export TEST      ?=
-test: test-setup lint ## Invoke unit or integration tests: TEST="tests/Unit/BasicTest.php" TEST_TYPE=test:unit make test
+test: test-setup lint ## Invoke unit tests: TEST="tests/Unit/BasicTest.php" make test
 	@composer $(TEST_TYPE) $(TEST)
 .PHONY: test
+
+test-integration: export TEST_TYPE ?= test:integration
+test-integration: export TEST      ?=
+test-integration: test-setup lint ## Invoke integration tests: TEST="tests/Integration/DatabaseExoirtEscapingTest.php" make test
+	@composer $(TEST_TYPE) $(TEST)
+.PHONY: test-integration
 
 test-setup:
 	@docker compose up -d --wait
