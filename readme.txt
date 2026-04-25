@@ -30,6 +30,11 @@ This plugin is installed on an external source WordPress site and handles:
 3. Activate via WordPress admin.
 4. Navigate to **Tools > HH Site Migrator**.
 
+== Screenshots ==
+
+1. Plugin setup, validate import key, fetch metadata
+2. Run migration, view logs and status
+
 == Frequently Asked Questions ==
 
 = What hosting environments are supported? =
@@ -81,5 +86,8 @@ The S3 buckets used for migration storage are operated by HonestHosting on Amazo
 
 == Changelog ==
 
-= 0.0.1 =
+= 0.0.10 =
+* Add screenshot & icons.
+
+= 0.0.9 =
 * Initial release.
