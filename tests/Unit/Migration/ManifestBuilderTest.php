@@ -80,7 +80,9 @@ class ManifestBuilderTest extends WP_UnitTestCase {
 		$this->assertArrayHasKey( 'wp_version', $source );
 		$this->assertArrayHasKey( 'php_version', $source );
 		$this->assertArrayHasKey( 'multisite', $source );
+		$this->assertArrayHasKey( 'table_prefix', $source );
 		$this->assertEquals( PHP_VERSION, $source['php_version'] );
+		$this->assertNotEmpty( $source['table_prefix'] );
 	}
 
 	/**

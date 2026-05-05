@@ -42,11 +42,17 @@ class ManifestBuilder {
 	 * @return array<string, mixed>
 	 */
 	private function build_source_site_info(): array {
+		global $wpdb;
+
 		$info = array(
-			'url'         => get_site_url(),
-			'wp_version'  => get_bloginfo( 'version' ),
-			'php_version' => PHP_VERSION,
-			'multisite'   => is_multisite(),
+			'url'          => get_site_url(),
+			'wp_version'   => get_bloginfo( 'version' ),
+			'php_version'  => PHP_VERSION,
+			'multisite'    => is_multisite(),
+			// Source DB prefix. Destination restore rewrites table identifiers and
+			// prefix-keyed rows in options/usermeta when this differs from the
+			// destination's prefix.
+			'table_prefix' => $wpdb->prefix,
 		);
 
 		if ( is_multisite() ) {

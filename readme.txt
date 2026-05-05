@@ -86,6 +86,9 @@ The S3 buckets used for migration storage are operated by HonestHosting on Amazo
 
 == Changelog ==
 
+= 0.0.11 =
+* Add `table_prefix` for custom tablenames in source sites.
+
 = 0.0.10 =
 * Add screenshot & icons.
 
