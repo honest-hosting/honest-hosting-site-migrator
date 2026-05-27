@@ -7,7 +7,7 @@
 
 // Path to the WordPress installation used for tests.
 // From tests/ -> honest-hosting-site-migrator -> honest-hosting -> github.com -> klm.
-define( 'ABSPATH', dirname( __DIR__, 4 ) . '/wordpress/wordpress-6.8.3/' );
+define( 'ABSPATH', dirname( __DIR__, 4 ) . '/wordpress/wordpress-7.0.0/' );
 
 // Database settings for test environment (docker-compose MariaDB).
 define( 'DB_NAME', getenv( 'WP_DB_NAME' ) ?: 'wordpress' );
