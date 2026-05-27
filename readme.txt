@@ -2,7 +2,7 @@
 Contributors: mywp459
 Tags: migration, hosting, import, export, site-migrator
 Requires at least: 6.7
-Tested up to: 6.9
+Tested up to: 7.0
 Stable tag: 1.0.0
 Requires PHP: 8.0
 License: MIT
