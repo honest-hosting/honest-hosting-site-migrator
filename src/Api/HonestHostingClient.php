@@ -178,6 +178,23 @@ class HonestHostingClient {
 	}
 
 	/**
+	 * Extract the HTTP status code from an API error.
+	 *
+	 * Transport-level failures (DNS, timeout, connection refused) carry no HTTP status and
+	 * return 0. Callers MUST treat 0 as "unknown, possibly transient" and never as a
+	 * definitive answer — discarding local state on a transient failure can orphan a
+	 * backend import with no way to recover it.
+	 *
+	 * @param WP_Error $error Error returned by a client method.
+	 * @return int HTTP status code, or 0 when the failure was not an HTTP response.
+	 */
+	public static function error_status( WP_Error $error ): int {
+		$data = $error->get_error_data();
+
+		return ( is_array( $data ) && isset( $data['status'] ) ) ? (int) $data['status'] : 0;
+	}
+
+	/**
 	 * Build request headers.
 	 *
 	 * @return array<string, string>

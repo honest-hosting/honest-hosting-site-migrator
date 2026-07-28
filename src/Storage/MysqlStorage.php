@@ -109,7 +109,7 @@ class MysqlStorage implements SessionStorageInterface {
 	 * @param mixed  $fallback Fallback value if key not found.
 	 * @return mixed
 	 */
-	public function get( string $key, mixed $fallback = null ): mixed {
+	public function get( string $key, $fallback = null ) {
 		global $wpdb;
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
@@ -136,7 +136,7 @@ class MysqlStorage implements SessionStorageInterface {
 	 * @param mixed  $value Value (will be JSON-encoded if not scalar).
 	 * @return void
 	 */
-	public function set( string $key, mixed $value ): void {
+	public function set( string $key, $value ): void {
 		global $wpdb;
 
 		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching

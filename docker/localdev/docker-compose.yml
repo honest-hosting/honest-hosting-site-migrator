@@ -1,0 +1,236 @@
+# PHP support-matrix for local smoke testing of the HonestHosting Site Migrator.
+#
+# One WordPress + one isolated MariaDB per supported PHP version. All storage is ephemeral.
+# Every cell runs identical WordPress core (WP_VERSION, default 6.9.5) so that any failure is
+# attributable to the PHP runtime and nothing else.
+#
+#   make localdev PHP=7.4     # single cell (expected day-to-day use)
+#   make localdev PHP=all     # all 7 cells: 14 containers
+#   make localdev-down
+#
+# Lives under docker/localdev/ so it cannot be picked up by a bare `docker compose` at the repo
+# root -- that belongs to docker-compose.yml, which backs `make test-setup` for integration
+# tests and must not be disturbed.
+#
+# The explicit project name is load-bearing. Without it, Compose derives a project name from the
+# directory and would treat the integration-test DB as an orphan of this project, so a
+# `down --remove-orphans` could delete it. All Makefile targets also pass -p explicitly.
+name: hh-migrator-localdev
+
+# Paths are relative to THIS file's directory (docker/localdev), so the build context and the
+# plugin bind-mount both reach back to the repo root via ../..
+x-wp-common: &wp-common
+  restart: unless-stopped
+  environment: &wp-env
+    WORDPRESS_DB_USER: root
+    WORDPRESS_DB_PASSWORD: dead-beef
+    WORDPRESS_DB_NAME: wordpress
+    WP_VERSION: ${WP_VERSION:-6.9.5}
+    WP_ADMIN_USER: ${WP_ADMIN_USER:-administrator}
+    WP_ADMIN_PASSWORD: ${WP_ADMIN_PASSWORD:-dead-beef}
+    WP_ADMIN_EMAIL: ${WP_ADMIN_EMAIL:-dev@honesthosting.io}
+    # Space-separated wordpress.org slugs, installed + activated on every cell.
+    # Plugin Check (PCP) requires PHP 7.4 / WP 6.3, so it runs even on the floor cell.
+    WP_EXTRA_PLUGINS: ${WP_EXTRA_PLUGINS:-plugin-check}
+    # Deliberately modest -- see provision.sh
+    PHP_MEMORY_LIMIT: ${PHP_MEMORY_LIMIT:-128M}
+    PHP_MAX_EXECUTION_TIME: ${PHP_MAX_EXECUTION_TIME:-30}
+    PHP_UPLOAD_MAX_FILESIZE: ${PHP_UPLOAD_MAX_FILESIZE:-8M}
+    PHP_POST_MAX_SIZE: ${PHP_POST_MAX_SIZE:-8M}
+  volumes:
+    # The built plugin, mounted live. Rebuild with `make localdev-deploy`; no redeploy needed.
+    - ../../build/honest-hosting-site-migrator:/var/www/html/wp-content/plugins/honest-hosting-site-migrator
+  # Without this, `up --wait` returns as soon as the container starts -- long before WP-CLI has
+  # finished downloading and installing core. Gating on a real HTTP 200 makes `make localdev`
+  # return only once the site is genuinely serving.
+  #
+  # Probes $WP_SITE_URL rather than a hardcoded port: Apache now listens on the cell's published
+  # port (see provision.sh), so this doubles as a check that the WP-Cron loopback path works.
+  healthcheck:
+    test: ["CMD-SHELL", "curl -fsS -o /dev/null \"$${WP_SITE_URL}\" || exit 1"]
+    interval: 5s
+    timeout: 5s
+    retries: 60
+    start_period: 20s
+  networks: [migrator]
+
+x-db-common: &db-common
+  image: harbor.klmh.co/klm/mariadb:10.7.3-b3
+  restart: unless-stopped
+  environment:
+    MARIADB_DATABASE: wordpress
+    MARIADB_ROOT_PASSWORD: dead-beef
+  # Ephemeral by design: no volumes, so a `down -v` wipes every cell back to clean.
+  tmpfs:
+    - /var/lib/mysql
+  healthcheck:
+    test: ["CMD", "mariadb-admin", "ping", "-h", "127.0.0.1", "-u", "root", "--password=$$MARIADB_ROOT_PASSWORD"]
+    interval: 5s
+    timeout: 5s
+    retries: 10
+    start_period: 30s
+  networks: [migrator]
+
+# Port scheme: 100XX for WordPress, 300XX for MariaDB, where XX is the PHP version.
+# Both ranges sit BELOW the ephemeral port range (/proc/sys/net/ipv4/ip_local_port_range,
+# 32768-60999 here), so the kernel will not transiently grab one for an outbound connection
+# and cause an intermittent bind failure.
+services:
+
+  # ----------------------------------------------------------------- PHP 7.4 (the new floor)
+  db-74:
+    <<: *db-common
+    container_name: hh-migrator-db-74
+    ports: ["30074:3306"]
+    profiles: [php74, all]
+
+  wp-74:
+    <<: *wp-common
+    build:
+      context: ../..
+      dockerfile: docker/localdev/Dockerfile
+      args: {PHP_VERSION: "7.4"}
+    container_name: hh-migrator-wp-74
+    depends_on: {db-74: {condition: service_healthy}}
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-74:3306
+      WP_SITE_URL: http://localhost:10074
+    ports: ["10074:10074"]
+    profiles: [php74, all]
+
+  # ----------------------------------------------------------------------------- PHP 8.0
+  db-80:
+    <<: *db-common
+    container_name: hh-migrator-db-80
+    ports: ["30080:3306"]
+    profiles: [php80, all]
+
+  wp-80:
+    <<: *wp-common
+    build:
+      context: ../..
+      dockerfile: docker/localdev/Dockerfile
+      args: {PHP_VERSION: "8.0"}
+    container_name: hh-migrator-wp-80
+    depends_on: {db-80: {condition: service_healthy}}
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-80:3306
+      WP_SITE_URL: http://localhost:10080
+    ports: ["10080:10080"]
+    profiles: [php80, all]
+
+  # ----------------------------------------------------------------------------- PHP 8.1
+  db-81:
+    <<: *db-common
+    container_name: hh-migrator-db-81
+    ports: ["30081:3306"]
+    profiles: [php81, all]
+
+  wp-81:
+    <<: *wp-common
+    build:
+      context: ../..
+      dockerfile: docker/localdev/Dockerfile
+      args: {PHP_VERSION: "8.1"}
+    container_name: hh-migrator-wp-81
+    depends_on: {db-81: {condition: service_healthy}}
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-81:3306
+      WP_SITE_URL: http://localhost:10081
+    ports: ["10081:10081"]
+    profiles: [php81, all]
+
+  # ----------------------------------------------------------------------------- PHP 8.2
+  db-82:
+    <<: *db-common
+    container_name: hh-migrator-db-82
+    ports: ["30082:3306"]
+    profiles: [php82, all]
+
+  wp-82:
+    <<: *wp-common
+    build:
+      context: ../..
+      dockerfile: docker/localdev/Dockerfile
+      args: {PHP_VERSION: "8.2"}
+    container_name: hh-migrator-wp-82
+    depends_on: {db-82: {condition: service_healthy}}
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-82:3306
+      WP_SITE_URL: http://localhost:10082
+    ports: ["10082:10082"]
+    profiles: [php82, all]
+
+  # ----------------------------------------------------------------------------- PHP 8.3
+  db-83:
+    <<: *db-common
+    container_name: hh-migrator-db-83
+    ports: ["30083:3306"]
+    profiles: [php83, all]
+
+  wp-83:
+    <<: *wp-common
+    build:
+      context: ../..
+      dockerfile: docker/localdev/Dockerfile
+      args: {PHP_VERSION: "8.3"}
+    container_name: hh-migrator-wp-83
+    depends_on: {db-83: {condition: service_healthy}}
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-83:3306
+      WP_SITE_URL: http://localhost:10083
+    ports: ["10083:10083"]
+    profiles: [php83, all]
+
+  # ----------------------------------------------------------------------------- PHP 8.4
+  db-84:
+    <<: *db-common
+    container_name: hh-migrator-db-84
+    ports: ["30084:3306"]
+    profiles: [php84, all]
+
+  wp-84:
+    <<: *wp-common
+    build:
+      context: ../..
+      dockerfile: docker/localdev/Dockerfile
+      args: {PHP_VERSION: "8.4"}
+    container_name: hh-migrator-wp-84
+    depends_on: {db-84: {condition: service_healthy}}
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-84:3306
+      WP_SITE_URL: http://localhost:10084
+    ports: ["10084:10084"]
+    profiles: [php84, all]
+
+  # ----------------------------------------------------------------------------- PHP 8.5
+  db-85:
+    <<: *db-common
+    container_name: hh-migrator-db-85
+    ports: ["30085:3306"]
+    profiles: [php85, all]
+
+  wp-85:
+    <<: *wp-common
+    build:
+      context: ../..
+      dockerfile: docker/localdev/Dockerfile
+      args: {PHP_VERSION: "8.5"}
+    container_name: hh-migrator-wp-85
+    depends_on: {db-85: {condition: service_healthy}}
+    environment:
+      <<: *wp-env
+      WORDPRESS_DB_HOST: db-85:3306
+      WP_SITE_URL: http://localhost:10085
+    ports: ["10085:10085"]
+    profiles: [php85, all]
+
+networks:
+  migrator:
+    driver: bridge
