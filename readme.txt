@@ -86,6 +86,9 @@ The S3 buckets used for migration storage are operated by HonestHosting on Amazo
 
 == Changelog ==
 
+= 0.1.1 =
+* Add support for PHP 7.4.
+
 = 0.0.11 =
 * Add `table_prefix` for custom tablenames in source sites.
 
