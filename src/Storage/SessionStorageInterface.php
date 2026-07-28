@@ -38,7 +38,7 @@ interface SessionStorageInterface {
 	 * @param mixed  $fallback Fallback value if key not found.
 	 * @return mixed
 	 */
-	public function get( string $key, mixed $fallback = null ): mixed;
+	public function get( string $key, $fallback = null );
 
 	/**
 	 * Set a session value by key.
@@ -47,7 +47,7 @@ interface SessionStorageInterface {
 	 * @param mixed  $value Value (will be JSON-encoded if not scalar).
 	 * @return void
 	 */
-	public function set( string $key, mixed $value ): void;
+	public function set( string $key, $value ): void;
 
 	/**
 	 * Set multiple session values at once.

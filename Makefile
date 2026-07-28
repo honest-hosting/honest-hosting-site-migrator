@@ -49,19 +49,21 @@ export BUILD_DATE  ?= $(if $(CI_JOB_STARTED_AT),$(CI_JOB_STARTED_AT),$(shell dat
 export COMMIT_HASH ?= $(if $(CI_COMMIT_SHA),$(CI_COMMIT_SHA),$(shell git rev-parse --short HEAD))
 build: build-setup composer-install ## Build distributable zip artifact
 	@rsync -av \
-		--exclude 'build/'              \
-		--exclude 'docs/'               \
-		--exclude '.git/'               \
-		--exclude '.gitignore'          \
-		--exclude '.gitmodules'         \
-		--exclude 'node_modules/'       \
-		--exclude 'tests/'              \
-		--exclude '*.env*'              \
-		--exclude '*.phpunit*'          \
-		--exclude 'phpunit.xml'         \
-		--exclude 'TESTING.md'          \
-		--exclude 'docker-compose.yml'  \
-		--exclude 'Makefile'            \
+		--exclude 'build/'                     \
+		--exclude 'docs/'                      \
+		--exclude '.git/'                      \
+		--exclude '.gitignore'                 \
+		--exclude '.gitmodules'                \
+		--exclude 'node_modules/'              \
+		--exclude 'tests/'                     \
+		--exclude '*.env*'                     \
+		--exclude '*.phpunit*'                 \
+		--exclude 'phpunit.xml'                \
+		--exclude 'TESTING.md'                 \
+		--exclude 'docker-compose.yml'         \
+		--exclude 'docker/'                    \
+		--exclude '*.PLAN.md'                  \
+		--exclude 'Makefile'                   \
 		./ build/$(PLUGIN_NAME)/
 	@if [[ -n "${VERSION}" ]] && [[ ${VERSION} =~ [0-9]+\.[0-9]+\.[0-9]+ ]]; then                                                                                                                   \
 		sed -i "s|Version:[[:space:]]*1\.0\.0|Version: $(VERSION)|; s|'HH_MIGRATOR_VERSION', '1.0.0'|'HH_MIGRATOR_VERSION', '$(VERSION)'|;" build/$(PLUGIN_NAME)/honest-hosting-site-migrator.php;  \
@@ -89,7 +91,50 @@ deploy: ## Deploy the build dir to destination WP instance: make deploy
 	@sshpass -p '$(SFTP_PASSWORD)' scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -P $(SFTP_PORT) -r build/$(PLUGIN_NAME)/* $(SFTP_USERNAME)@$(SFTP_HOSTNAME):/wp-content/plugins/$(PLUGIN_NAME)/
 .PHONY: deploy
 
-clean: test-cleanup ## Remove build artifacts and vendor directory
+#
+# Local PHP support matrix (7.4, 8.0-8.5). See docker/localdev/docker-compose.yml.
+#
+# `build` is the only prerequisite: it populates build/$(PLUGIN_NAME)/, which every cell
+# bind-mounts as its plugin directory. There is no separate deploy step -- rerun `make build`
+# and refresh the browser. ENVIRONMENT passes through, so `ENVIRONMENT=production make localdev`
+# mounts a --no-dev tree identical to the shipped zip.
+#
+# -p is passed explicitly on EVERY invocation, and matches `name:` in the compose file, so these
+# targets can only ever act on the hh-migrator-localdev project. Without that scoping, Compose
+# derives a project name from the directory and can treat containers belonging to the root
+# docker-compose.yml (the integration-test DB) as orphans of this project.
+LOCALDEV_PROJECT := hh-migrator-localdev
+LOCALDEV_COMPOSE := docker/localdev/docker-compose.yml
+LOCALDEV_DC      := docker compose -p $(LOCALDEV_PROJECT) -f $(LOCALDEV_COMPOSE)
+PHP              ?= all
+LOCALDEV_PROFILE := $(if $(filter all,$(PHP)),all,php$(subst .,,$(PHP)))
+export WP_VERSION        ?= 6.9.5
+export WP_ADMIN_USER     ?= administrator
+export WP_ADMIN_PASSWORD ?= dead-beef
+
+localdev: build ## Start local WP matrix: PHP=7.4 make localdev (PHP=all for every cell)
+	@echo "Starting profile '$(LOCALDEV_PROFILE)' (WordPress $(WP_VERSION))..."
+	@$(LOCALDEV_DC) --profile $(LOCALDEV_PROFILE) up -d --build --wait
+	@echo ""
+	@echo "wp-admin login: $(WP_ADMIN_USER) / $(WP_ADMIN_PASSWORD)"
+.PHONY: localdev
+
+localdev-logs: ## Tail logs for the selected cell: PHP=7.4 make localdev-logs
+	@$(LOCALDEV_DC) --profile $(LOCALDEV_PROFILE) logs -f
+.PHONY: localdev-logs
+
+localdev-shell: ## Shell into the selected cell: PHP=7.4 make localdev-shell
+	@$(LOCALDEV_DC) exec wp-$(subst .,,$(PHP)) bash
+.PHONY: localdev-shell
+
+# Scoped to -p $(LOCALDEV_PROJECT), so it can only remove this project's containers.
+# --remove-orphans is deliberately NOT used: it previously deleted the integration-test DB.
+# `|| true` keeps a teardown of an already-absent stack from failing the target.
+localdev-cleanup:
+	@$(LOCALDEV_DC) --profile all down -v || true
+.PHONY: localdev-cleanup
+
+clean: test-cleanup localdev-cleanup ## Remove build artifacts and vendor directory
 	@rm -rf build >/dev/null || true
 	@rm -rf vendor >/dev/null || true
 .PHONY: clean

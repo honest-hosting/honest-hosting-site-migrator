@@ -120,10 +120,15 @@ class ApiEndpointsTest extends WP_UnitTestCase {
 	}
 
 	/**
-	 * is_valid_base_url rejects HTTP URLs.
+	 * is_valid_base_url accepts HTTP URLs.
+	 *
+	 * HTTP is permitted so the plugin can be pointed at a non-TLS API during local
+	 * development (see docker/localdev). Production destinations are always HTTPS —
+	 * the scheme is not restricted here, it is a deployment convention.
 	 */
-	public function test_is_valid_base_url_rejects_http(): void {
-		$this->assertFalse( ApiEndpoints::is_valid_base_url( 'http://api.honesthosting.io' ) );
+	public function test_is_valid_base_url_accepts_http(): void {
+		$this->assertTrue( ApiEndpoints::is_valid_base_url( 'http://api.honesthosting.io' ) );
+		$this->assertTrue( ApiEndpoints::is_valid_base_url( 'http://localhost:10074' ) );
 	}
 
 	/**

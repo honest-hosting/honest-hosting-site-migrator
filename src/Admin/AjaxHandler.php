@@ -199,7 +199,7 @@ class AjaxHandler {
 
 		if ( ! ApiEndpoints::is_valid_base_url( $api_base_url ) ) {
 			wp_send_json_error(
-				array( 'message' => __( 'API base URL must use HTTPS.', 'honest-hosting-site-migrator' ) )
+				array( 'message' => __( 'API base URL must be a valid HTTP or HTTPS URL.', 'honest-hosting-site-migrator' ) )
 			);
 		}
 
@@ -385,7 +385,8 @@ class AjaxHandler {
 	public function handle_get_status(): void {
 		$this->verify_request();
 
-		$import_id = (string) get_option( 'hh_migrator_active_import_id', '' );
+		$import_id       = (string) get_option( 'hh_migrator_active_import_id', '' );
+		$has_destination = '' !== (string) get_option( 'hh_migrator_destination_site_id', '' );
 
 		// Try the API first if we have an active import ID.
 		if ( ! empty( $import_id ) ) {
@@ -407,15 +408,24 @@ class AjaxHandler {
 
 				wp_send_json_success(
 					array(
-						'import_id' => $import_id,
-						'status'    => $status,
-						'stale'     => $stale,
+						'import_id'       => $import_id,
+						'status'          => $status,
+						'stale'           => $stale,
+						'has_destination' => $has_destination,
 					)
 				);
 			}
 
-			// API call failed — clear the stored ID and fall through to local check.
-			delete_option( 'hh_migrator_active_import_id' );
+			// API lookup failed. Only forget the import ID when the API says the import is
+			// genuinely gone (404) — never on timeouts, 5xx, or transport errors.
+			//
+			// Discarding it on a transient blip permanently orphans the backend import: this
+			// option is the plugin's only handle on it, and no endpoint exposes the active
+			// import for a key, so it cannot be rediscovered. The backend import keeps
+			// blocking new ones with HTTP 409 and the user has no way to clear it.
+			if ( 404 === HonestHostingClient::error_status( $response ) ) {
+				delete_option( 'hh_migrator_active_import_id' );
+			}
 		}
 
 		// Fallback: check for a local incomplete/failed session that can be resumed.
@@ -430,7 +440,12 @@ class AjaxHandler {
 	private function check_local_session_status(): void {
 		$site_id = (string) get_option( 'hh_migrator_destination_site_id', '' );
 		if ( empty( $site_id ) ) {
-			wp_send_json_success( array( 'status' => 'none' ) );
+			wp_send_json_success(
+				array(
+					'status'          => 'none',
+					'has_destination' => false,
+				)
+			);
 		}
 
 		$sm       = new SessionManager();
@@ -455,14 +470,22 @@ class AjaxHandler {
 
 			wp_send_json_success(
 				array(
-					'import_id' => $local_id,
-					'status'    => 'failed' === $local_status ? 'error' : $local_status,
-					'stale'     => $stale,
+					'import_id'       => $local_id,
+					'status'          => 'failed' === $local_status ? 'error' : $local_status,
+					'stale'           => $stale,
+					'has_destination' => true,
 				)
 			);
 		}
 
-		wp_send_json_success( array( 'status' => 'none' ) );
+		// No local session. Status is 'none', but a destination IS configured — so the backend
+		// may still hold an orphaned active import. Cancel stays available on that basis.
+		wp_send_json_success(
+			array(
+				'status'          => 'none',
+				'has_destination' => true,
+			)
+		);
 	}
 
 	/**

@@ -320,7 +320,7 @@ class SessionManager {
 	 * @param mixed                   $fp    File progress data.
 	 * @return void
 	 */
-	private function update_file_progress( SessionStorageInterface $store, mixed $fp ): void {
+	private function update_file_progress( SessionStorageInterface $store, $fp ): void {
 		if ( ! is_array( $fp ) ) {
 			return;
 		}
@@ -350,7 +350,7 @@ class SessionManager {
 	 * @param mixed                   $dp    DB progress data.
 	 * @return void
 	 */
-	private function update_db_progress( SessionStorageInterface $store, mixed $dp ): void {
+	private function update_db_progress( SessionStorageInterface $store, $dp ): void {
 		if ( ! is_array( $dp ) ) {
 			return;
 		}

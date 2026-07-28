@@ -35,6 +35,16 @@
 		currentImportStale: false,
 
 		/**
+		 * Whether a destination site is configured.
+		 *
+		 * Gates the Cancel button. Intentionally NOT reset on a failed status poll — a
+		 * transient error must not remove the user's only way out of a stuck import.
+		 *
+		 * @type {boolean}
+		 */
+		hasDestination: false,
+
+		/**
 		 * Current log page.
 		 *
 		 * @type {number}
@@ -218,6 +228,10 @@
 				if (data.site) {
 					HHMigrator.showDestSite(data.site);
 				}
+				// Validating the key persists the destination site id, which is what gates the
+				// Cancel button. Re-poll so it activates immediately instead of only after a
+				// page reload or the next 30s auto-refresh tick.
+				HHMigrator.fetchStatus();
 			}, function (data) {
 				HHMigrator.hideSpinner($btn);
 				HHMigrator.showNotice('error', data.message || 'Invalid import key.');
@@ -245,6 +259,10 @@
 				if (data.site) {
 					HHMigrator.showDestSite(data.site);
 				}
+				// Saving config is where the destination site id first gets persisted, and that
+				// is what gates the Cancel button. Re-poll so it activates immediately rather
+				// than staying disabled until a page reload or the next 30s auto-refresh tick.
+				HHMigrator.fetchStatus();
 			}, function (data) {
 				HHMigrator.hideSpinner($btn);
 				HHMigrator.showNotice('error', data.message || 'Failed to save configuration.');
@@ -500,10 +518,13 @@
 			HHMigrator.ajax('hh_migrator_get_status', {}, function (data) {
 				HHMigrator.currentImportStatus = data.status || 'none';
 				HHMigrator.currentImportStale = data.stale || false;
+				HHMigrator.hasDestination = !!data.has_destination;
 				HHMigrator.updateButtonStates();
 			}, function () {
 				HHMigrator.currentImportStatus = 'none';
 				HHMigrator.currentImportStale = false;
+				// hasDestination is deliberately left untouched: a failed poll must not
+				// disable Cancel, which is the recovery path for a stuck import.
 				HHMigrator.updateButtonStates();
 			});
 		},
@@ -523,7 +544,17 @@
 
 			$('#hh-migrator-start-migration').prop('disabled', isActive || canResume);
 			$('#hh-migrator-resume-migration').prop('disabled', !canResume);
-			$('#hh-migrator-cancel-migration').prop('disabled', !isActive && !canResume);
+
+			// Cancel is enabled whenever a destination is configured — NOT only when local
+			// state looks active. The condition that blocks a new import lives on the backend:
+			// an import in pending/uploading/ready/running makes the API reject new ones with
+			// HTTP 409. Local state can be absent or diverged (plugin reinstall, wiped session
+			// store, or a dropped active_import_id), and gating on it made the only escape
+			// hatch unreachable in precisely the case it existed for.
+			//
+			// Safe to leave enabled: DELETE /v1/siteImport returns 404 when there is nothing
+			// active, which is treated as success.
+			$('#hh-migrator-cancel-migration').prop('disabled', !this.hasDestination);
 
 			var label = (status === 'none') ? 'Not Started' : status.replace(/_/g, ' ');
 			if (stale) {

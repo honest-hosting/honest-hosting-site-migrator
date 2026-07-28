@@ -11,7 +11,7 @@
  * Text Domain: honest-hosting-site-migrator
  * Domain Path: /languages
  * Requires at least: 6.7
- * Requires PHP: 8.0
+ * Requires PHP: 7.4
  *
  * @package HonestHosting\SiteMigrator
  */

@@ -154,7 +154,7 @@ class SqliteStorage implements SessionStorageInterface {
 	 * @param mixed  $fallback Fallback value if key not found.
 	 * @return mixed
 	 */
-	public function get( string $key, mixed $fallback = null ): mixed {
+	public function get( string $key, $fallback = null ) {
 		$stmt = $this->stmt( 'SELECT value FROM session WHERE key = :key' );
 		$stmt->bindValue( ':key', $key, SQLITE3_TEXT );
 		$result = $stmt->execute();
@@ -179,7 +179,7 @@ class SqliteStorage implements SessionStorageInterface {
 	 * @param mixed  $value Value (will be JSON-encoded if not scalar).
 	 * @return void
 	 */
-	public function set( string $key, mixed $value ): void {
+	public function set( string $key, $value ): void {
 		$this->set_many( array( $key => $value ) );
 	}
 

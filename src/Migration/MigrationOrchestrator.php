@@ -269,22 +269,44 @@ class MigrationOrchestrator {
 	 * @return true|WP_Error
 	 */
 	public function cancel() {
-		$site_id = (string) get_option( 'hh_migrator_destination_site_id', '' );
-		if ( empty( $site_id ) ) {
-			return new WP_Error( 'hh_migrator_no_destination', __( 'No destination site selected.', 'honest-hosting-site-migrator' ) );
+		// Deliberately does NOT require a configured destination. DELETE /v1/siteImport is
+		// scoped to the import key alone, so cancelling has to stay possible when local state
+		// is missing — plugin reinstall, wiped session store, or a dropped active_import_id.
+		// That is exactly the situation where the user is stuck and needs this most.
+		$api_result = $this->client->cancel_import();
+		$api_error  = '';
+
+		// A 404 means there was no active import to cancel, which is already the desired end
+		// state — so only a non-404 failure counts as an actual problem.
+		if ( is_wp_error( $api_result ) && 404 !== HonestHostingClient::error_status( $api_result ) ) {
+			$api_error = $api_result->get_error_message();
 		}
 
-		// Cancel on the backend API (best-effort — still clean up locally on failure).
-		$this->client->cancel_import();
-
-		// Clean up local sessions.
+		// Clean up local sessions. Scoped to the configured destination when there is one;
+		// with none configured, any local session is orphaned, so clear them all.
+		$site_id  = (string) get_option( 'hh_migrator_destination_site_id', '' );
 		$sessions = $this->session_manager->list_all();
 		foreach ( $sessions as $session ) {
-			if ( ( $session['destination_site_id'] ?? '' ) === $site_id ) {
-				$import_id = $session['import_id'] ?? '';
-				$this->session_manager->update( $import_id, array( 'status' => 'cancelled' ) );
-				$this->session_manager->release_lock( $import_id );
+			if ( '' !== $site_id && ( $session['destination_site_id'] ?? '' ) !== $site_id ) {
+				continue;
 			}
+			$import_id = $session['import_id'] ?? '';
+			$this->session_manager->update( $import_id, array( 'status' => 'cancelled' ) );
+			$this->session_manager->release_lock( $import_id );
+		}
+
+		// Report a failed backend cancel rather than swallowing it. Local cleanup has already
+		// run, but the backend import is still active and will keep rejecting new imports with
+		// HTTP 409 — reporting success here would leave the user stuck with no indication why.
+		if ( '' !== $api_error ) {
+			return new WP_Error(
+				'hh_migrator_cancel_api_failed',
+				sprintf(
+					/* translators: %s: error message from the API */
+					__( 'Local migration state was cleared, but the destination could not be released: %s. Please try Cancel again.', 'honest-hosting-site-migrator' ),
+					$api_error
+				)
+			);
 		}
 
 		return true;
@@ -533,12 +555,15 @@ class MigrationOrchestrator {
 	 * @return string API mode: auto, full, or incremental.
 	 */
 	private function map_mode_to_api( string $plugin_mode ): string {
-		return match ( $plugin_mode ) {
-			'full'               => 'full',
-			'incremental_all',
-			'incremental_files',
-			'incremental_db'     => 'incremental',
-			default              => 'auto',
-		};
+		switch ( $plugin_mode ) {
+			case 'full':
+				return 'full';
+			case 'incremental_all':
+			case 'incremental_files':
+			case 'incremental_db':
+				return 'incremental';
+			default:
+				return 'auto';
+		}
 	}
 }
