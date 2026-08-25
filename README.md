@@ -205,13 +205,13 @@ Login `administrator` / `dead-beef`. The built plugin is bind-mounted from
 `build/honest-hosting-site-migrator/`, so `make build` and a browser refresh is the whole edit
 loop — there is no deploy step. Configuration lives in `docker/localdev/`.
 
-Overridable via environment: `WP_VERSION` (default 6.9.5), `WP_ADMIN_USER`, `WP_ADMIN_PASSWORD`,
+Overridable via environment: `WP_VERSION` (default 7.1), `WP_ADMIN_USER`, `WP_ADMIN_PASSWORD`,
 `WP_EXTRA_PLUGINS`, and the deliberately modest `PHP_MEMORY_LIMIT` / `PHP_MAX_EXECUTION_TIME` /
 `PHP_UPLOAD_MAX_FILESIZE` / `PHP_POST_MAX_SIZE`, which default to shared-hosting-like values so
 the chunked export path gets exercised under realistic constraints.
 
 ```bash
-WP_VERSION=7.0.2 make localdev PHP=8.5      # pin a different WordPress
+WP_VERSION=7.0.4 make localdev PHP=8.5      # pin a different WordPress
 PHP_MEMORY_LIMIT=64M make localdev PHP=7.4  # tighter limits
 ```
 

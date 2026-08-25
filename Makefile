@@ -108,7 +108,7 @@ LOCALDEV_COMPOSE := docker/localdev/docker-compose.yml
 LOCALDEV_DC      := docker compose -p $(LOCALDEV_PROJECT) -f $(LOCALDEV_COMPOSE)
 PHP              ?= all
 LOCALDEV_PROFILE := $(if $(filter all,$(PHP)),all,php$(subst .,,$(PHP)))
-export WP_VERSION        ?= 6.9.5
+export WP_VERSION        ?= 7.1
 export WP_ADMIN_USER     ?= administrator
 export WP_ADMIN_PASSWORD ?= dead-beef
 
