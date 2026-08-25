@@ -1,7 +1,7 @@
 # PHP support-matrix for local smoke testing of the HonestHosting Site Migrator.
 #
 # One WordPress + one isolated MariaDB per supported PHP version. All storage is ephemeral.
-# Every cell runs identical WordPress core (WP_VERSION, default 6.9.5) so that any failure is
+# Every cell runs identical WordPress core (WP_VERSION, default 7.1) so that any failure is
 # attributable to the PHP runtime and nothing else.
 #
 #   make localdev PHP=7.4     # single cell (expected day-to-day use)
@@ -25,7 +25,7 @@ x-wp-common: &wp-common
     WORDPRESS_DB_USER: root
     WORDPRESS_DB_PASSWORD: dead-beef
     WORDPRESS_DB_NAME: wordpress
-    WP_VERSION: ${WP_VERSION:-6.9.5}
+    WP_VERSION: ${WP_VERSION:-7.1}
     WP_ADMIN_USER: ${WP_ADMIN_USER:-administrator}
     WP_ADMIN_PASSWORD: ${WP_ADMIN_PASSWORD:-dead-beef}
     WP_ADMIN_EMAIL: ${WP_ADMIN_EMAIL:-dev@honesthosting.io}
